@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>Portfolio IBKR</title>
+<title>Mi Cartera</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;600;700&display=swap" rel="stylesheet"/>
 <style>
 :root{--bg:#070b12;--s1:#0e1520;--s2:#131d2e;--border:#1a2640;--a1:#3b82f6;--a2:#8b5cf6;--green:#10b981;--red:#ef4444;--amber:#f59e0b;--text:#e2e8f0;--muted:#64748b;--mono:'DM Mono',monospace;--sans:'DM Sans',sans-serif;}
@@ -21,7 +21,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 .field input:focus{border-color:var(--a1);box-shadow:0 0 0 3px rgba(59,130,246,.15);}
 .btn-login{width:100%;margin-top:8px;padding:13px;border:none;border-radius:10px;background:linear-gradient(135deg,var(--a1),var(--a2));color:#fff;font-size:14px;font-weight:700;font-family:var(--sans);cursor:pointer;transition:.2s;}
 .btn-login:hover{opacity:.9;transform:translateY(-1px);}
-.btn-login:disabled{opacity:.5;cursor:wait;transform:none;}
 .login-error{color:var(--red);font-size:12px;text-align:center;margin-top:10px;min-height:18px;}
 #app{display:none;}
 .header{background:var(--s1);border-bottom:1px solid var(--border);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;gap:12px;}
@@ -72,7 +71,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 .pf2{height:100%;border-radius:4px;background:linear-gradient(90deg,var(--a1),var(--a2));}
 .div-row{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:11px 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;}
 .badge{padding:2px 8px;border-radius:20px;font-size:9px;font-weight:700;font-family:var(--mono);text-transform:uppercase;}
-.opt-row{background:var(--s1);border:1px solid var(--border);border-radius:10px;padding:12px 14px;display:grid;gap:8px;margin-bottom:10px;}
 .error-box{padding:12px;background:rgba(239,68,68,.15);border:1px solid var(--red);border-radius:8px;font-size:12px;color:var(--red);margin-bottom:16px;}
 </style>
 </head>
@@ -81,7 +79,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 <div id="login-screen">
   <div class="login-card">
     <div class="login-logo">📊</div>
-    <h1>Portfolio IBKR</h1>
+    <h1>Mi Cartera</h1>
     <p>Acceso privado</p>
     <div class="field">
       <label>Contraseña</label>
@@ -97,7 +95,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
     <div class="header-left">
       <div class="header-logo">📊</div>
       <div>
-        <h1>Portfolio <span>IBKR</span></h1>
+        <h1>Mi <span>Cartera</span></h1>
         <div class="header-sub" id="upd">—</div>
       </div>
     </div>
@@ -108,18 +106,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
   </div>
   <div class="tabs" id="tabsbar"></div>
   <div class="content" id="mc">
-    <div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">Conectando con IBKR…</p></div>
+    <div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">Cargando cartera…</p></div>
   </div>
 </div>
 
 <script>
 const PWD="Ibkr#J0s3$2026!";
-const SM={ABBV:"Salud",AMZN:"Tecnología",ASTS:"Telecomunicaciones",BAM:"Financiero",BITO:"Cripto/ETF",BKNG:"Consumo Discrecional",BN:"Financiero",ENB:"Energía",JEPI:"ETF Ingresos",JEPQ:"ETF Ingresos",MA:"Financiero",MAIN:"BDC",MCD:"Consumo Estable",MSFT:"Tecnología",NEE:"Utilities",ONDS:"Tecnología",PAYX:"Servicios Empresariales",SPGI:"Datos/Finanzas",TSLA:"Automóvil/Tech",UNH:"Salud",V:"Financiero",VICI:"REIT",ZTS:"Salud Animal","700":"Tecnología HK"};
-const LM={ABBV:"abbvie.com",AMZN:"amazon.com",ASTS:"ast-science.com",BAM:"brookfield.com",BITO:"proshares.com",BKNG:"booking.com",BN:"brookfield.com",ENB:"enbridge.com",JEPI:"jpmorgan.com",JEPQ:"jpmorgan.com",MA:"mastercard.com",MAIN:"mainstcapital.com",MCD:"mcdonalds.com",MSFT:"microsoft.com",NEE:"nexteraenergy.com",ONDS:"ondas.com",PAYX:"paychex.com",SPGI:"spglobal.com",UNH:"unitedhealthgroup.com",V:"visa.com",VICI:"viciproperties.com",ZTS:"zoetis.com","700":"tencent.com"};
-const DV={ABBV:{a:6.56,f:"Trimestral"},ENB:{a:3.77,f:"Trimestral"},JEPI:{a:6.80,f:"Mensual"},JEPQ:{a:6.20,f:"Mensual"},MAIN:{a:3.00,f:"Mensual"},MCD:{a:7.08,f:"Trimestral"},NEE:{a:2.31,f:"Trimestral"},PAYX:{a:3.92,f:"Trimestral"},VICI:{a:1.72,f:"Trimestral"},BN:{a:0.28,f:"Trimestral"},BAM:{a:1.50,f:"Trimestral"},V:{a:0.90,f:"Trimestral"},MA:{a:2.64,f:"Trimestral"},MSFT:{a:3.32,f:"Trimestral"},UNH:{a:8.40,f:"Trimestral"},ZTS:{a:1.60,f:"Trimestral"},SPGI:{a:4.32,f:"Trimestral"},"700":{a:3.40,f:"Semestral"}};
+
+// Logo domains for visual identification
+const LM={ABBV:"abbvie.com",AMZN:"amazon.com",ASTS:"ast-science.com",BAM:"brookfield.com",BITO:"proshares.com",BKNG:"booking.com",BN:"brookfield.com",ENB:"enbridge.com",JEPI:"jpmorgan.com",JEPQ:"jpmorgan.com",MA:"mastercard.com",MAIN:"mainstcapital.com",MCD:"mcdonalds.com",MSFT:"microsoft.com",NEE:"nexteraenergy.com",ONDS:"ondas.com",PAYX:"paychex.com",SPGI:"spglobal.com",UNH:"unitedhealthgroup.com",V:"visa.com",VICI:"viciproperties.com",ZTS:"zoetis.com","700":"tencent.com",ABBV:"abbvie.com",ASML:"asml.com",IBE:"iberdrola.com",BATS:"bat.com",WKL:"wolterskluwer.com",RMS:"hermes.com"};
+
+// Estimated annual dividend per share (used for YOC calc) - update as needed
+const DIV={ABBV:6.56,ENB:3.77,JEPI:6.80,JEPQ:6.20,MAIN:3.00,MCD:7.08,NEE:2.31,PAYX:3.92,VICI:1.72,BN:0.28,BAM:1.50,V:0.90,MA:2.64,MSFT:3.32,UNH:8.40,ZTS:1.60,SPGI:4.32,"700":3.40,ASML:6.40,IBE:0.62,BATS:2.40,WKL:1.65};
+
 const CL=["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#06b6d4","#a78bfa","#34d399","#fbbf24","#f87171","#0ea5e9","#c4b5fd","#4ade80","#facc15","#fb923c"];
-const HKD=0.1108;
-let st={positions:null,summary:null,tab:"overview"};
+
+let st={positions:null,tab:"overview",fetchedAt:null};
 
 function doLogin(){
   const p=document.getElementById("pwd").value;
@@ -138,63 +140,79 @@ if(sessionStorage.getItem("auth")==="1"){
   renderTabs();
 }
 
-async function callBackend(prompt){
-  const r=await fetch("/.netlify/functions/ibkr",{
-    method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({messages:[{role:"user",content:prompt}]})
-  });
-  if(!r.ok)throw new Error("Backend error: "+r.status);
-  return r.json();
-}
-
-function exMCP(data){
-  if(!data?.content)return null;
-  const b=data.content.find(b=>b.type==="mcp_tool_result");
-  if(!b)return null;
-  try{return JSON.parse(b.content?.[0]?.text||"null");}catch{return null;}
-}
-
 async function loadData(){
   const btn=document.getElementById("btnr");
   btn.disabled=true;btn.textContent="⏳ Cargando…";
-  document.getElementById("mc").innerHTML=`<div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">Conectando con IBKR…</p></div>`;
+  document.getElementById("mc").innerHTML=`<div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">Consultando IBKR (puede tardar 10-20s)…</p></div>`;
   try{
-    const[pd,sd]=await Promise.all([
-      callBackend("Call get_account_positions and return all positions."),
-      callBackend("Call get_account_summary and return the summary.")
-    ]);
-    st.positions=exMCP(pd);
-    st.summary=exMCP(sd);
-    document.getElementById("upd").textContent="Actualizado: "+new Date().toLocaleTimeString("es-ES");
+    const r=await fetch("/.netlify/functions/portfolio");
+    const data=await r.json();
+    if(data.error){
+      document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ ${data.error}</div>`;
+      btn.disabled=false;btn.textContent="⟳ Actualizar";
+      return;
+    }
+    st.positions=data.positions;
+    st.fetchedAt=data.fetchedAt;
+    document.getElementById("upd").textContent="Actualizado: "+new Date(data.fetchedAt).toLocaleString("es-ES");
   }catch(e){
-    document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ Error: ${e.message}<br><small>Comprueba que la API key está configurada en Netlify → Environment variables</small></div>`;
+    document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ Error: ${e.message}</div>`;
   }
   btn.disabled=false;btn.textContent="⟳ Actualizar";
   renderMain(st.tab);
 }
 
-const fmt=(n,d=0)=>n==null?"—":Number(n).toLocaleString("es-ES",{minimumFractionDigits:d,maximumFractionDigits:d});
-const fmtD=(n)=>`${n>=0?"+":""}${Number(n).toFixed(2)}%`;
-const fmtC=(n)=>n==null?"—":`$${fmt(n,0)}`;
+const fmt=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString("es-ES",{minimumFractionDigits:d,maximumFractionDigits:d});
+const fmtD=(n)=>n==null||isNaN(n)?"—":`${n>=0?"+":""}${Number(n).toFixed(2)}%`;
+const fmtC=(n,cur="$")=>n==null||isNaN(n)?"—":`${cur}${fmt(n,0)}`;
 const clr=(n)=>n>=0?"var(--green)":"var(--red)";
-const cv=(n)=>`<span style="color:${clr(n)}">${fmtC(n)}</span>`;
+const cv=(n,cur="$")=>`<span style="color:${clr(n)}">${fmtC(n,cur)}</span>`;
 const sc=(l,v,s,c)=>`<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value" style="color:${c}">${v}</div>${s?`<div class="stat-sub">${s}</div>`:""}</div>`;
 function lg(t,sz=30){const d=LM[t];if(!d)return `<div class="pos-fb" style="width:${sz}px;height:${sz}px;font-size:${sz*.35}px">${t.slice(0,2)}</div>`;return `<img class="pos-logo" src="https://logo.clearbit.com/${d}" width="${sz}" height="${sz}" onerror="this.outerHTML='<div class=\\'pos-fb\\' style=\\'width:${sz}px;height:${sz}px;font-size:${sz*.35}px\\'>${t.slice(0,2)}</div>'" style="width:${sz}px;height:${sz}px"/>`;}
 
-function enrich(pos){
-  const s=(pos||[]).filter(p=>p.asset_class==="STK");
-  const tot=s.reduce((a,p)=>a+(p.currency==="HKD"?p.market_value*HKD:p.market_value),0);
-  return s.map(p=>{
-    const usd=p.currency==="HKD"?p.market_value*HKD:p.market_value;
-    const cost=p.average_price*p.position*(p.currency==="HKD"?HKD:1);
-    const pct=cost>0?((usd-cost)/cost)*100:0;
-    const w=tot>0?(usd/tot)*100:0;
-    const d=DV[p.contract_description]||{a:0,f:"—"};
-    return{...p,ticker:p.contract_description,usd,pct,w,sector:SM[p.contract_description]||"Otros",ad:d.a*p.position,df:d.f,dy:p.market_price>0?(d.a/p.market_price)*100:0};
+// Currency conversion to USD (approx rates, updated periodically)
+const FX_TO_USD={USD:1,EUR:1.08,HKD:0.128,GBP:1.27};
+
+function enrich(positions){
+  // Filter stock-like positions (skip cash/forex)
+  const stocks=(positions||[]).filter(p=>p.assetClass==="STK"||p.assetClass==="FUND");
+  const tot=stocks.reduce((a,p)=>{
+    const fx=FX_TO_USD[p.currency]||parseFloat(p.fxRateToBase)||1;
+    return a+(parseFloat(p.positionValue)||0)*fx;
+  },0);
+  return stocks.map(p=>{
+    const fx=FX_TO_USD[p.currency]||parseFloat(p.fxRateToBase)||1;
+    const qty=parseFloat(p.position)||0;
+    const markPrice=parseFloat(p.markPrice)||0;
+    const posVal=(parseFloat(p.positionValue)||0)*fx;
+    const costBasisMoney=(parseFloat(p.costBasisMoney)||0)*fx;
+    const costBasisPrice=parseFloat(p.costBasisPrice)||0;
+    const unrealPnl=(parseFloat(p.unrealizedPnL)||0)*fx;
+    const pct=costBasisMoney!==0?((posVal-costBasisMoney)/Math.abs(costBasisMoney))*100:0;
+    const w=tot>0?(posVal/tot)*100:0;
+    const annDivPerShare=DIV[p.symbol]||0;
+    const annDiv=annDivPerShare*qty*fx;
+    const yoc=costBasisPrice>0?(annDivPerShare/costBasisPrice)*100:0;
+    const curYield=markPrice>0?(annDivPerShare/markPrice)*100:0;
+    // Holding period in years for simple annualized return
+    let years=null,tir=null;
+    if(p.openDateTime){
+      const opened=new Date(p.openDateTime.replace(";"," ").slice(0,8).replace(/(\d{4})(\d{2})(\d{2})/,"$1-$2-$3"));
+      const now=new Date();
+      years=(now-opened)/(365.25*24*3600*1000);
+      if(years>0.05 && costBasisMoney!==0){
+        tir=(Math.pow(posVal/Math.abs(costBasisMoney),1/years)-1)*100;
+      }
+    }
+    return{
+      ...p,ticker:p.symbol,usd:posVal,pct,w,
+      qty,markPrice,costBasisPrice,costBasisMoney,unrealPnl,
+      annDiv,yoc,curYield,years,tir
+    };
   }).sort((a,b)=>b.usd-a.usd);
 }
 
-const TABS=[{id:"overview",l:"Resumen"},{id:"posiciones",l:"Posiciones"},{id:"heatmap",l:"Heatmap"},{id:"sectores",l:"Sectores"},{id:"dividendos",l:"Dividendos"},{id:"opciones",l:"Opciones"}];
+const TABS=[{id:"overview",l:"Resumen"},{id:"posiciones",l:"Posiciones"},{id:"heatmap",l:"Heatmap"},{id:"dividendos",l:"Dividendos"},{id:"rentabilidad",l:"Rentabilidad"}];
 function renderTabs(){document.getElementById("tabsbar").innerHTML=TABS.map(t=>`<button class="tab${st.tab===t.id?" active":""}" onclick="sw('${t.id}')">${t.l}</button>`).join("");}
 function sw(id){st.tab=id;renderTabs();renderMain(id);}
 
@@ -202,54 +220,60 @@ function renderMain(tab){
   const el=document.getElementById("mc");
   if(!st.positions){el.innerHTML=`<div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">Cargando…</p></div>`;return;}
   const en=enrich(st.positions);
-  const opts=(st.positions||[]).filter(p=>!p.asset_class);
-  const sum=st.summary||{};
+  if(en.length===0){
+    el.innerHTML=`<div class="error-box">No se encontraron posiciones de tipo acción/fondo en el informe. Comprueba que "Open Positions" está habilitado en la Flex Query.</div>`;
+    return;
+  }
   const tot=en.reduce((s,p)=>s+p.usd,0);
-  const pnl=en.reduce((s,p)=>s+(p.currency==="HKD"?p.unrealized_pnl*HKD:p.unrealized_pnl),0);
-  const tad=en.reduce((s,p)=>s+p.ad,0);
-  const opnl=opts.reduce((s,p)=>s+(p.unrealized_pnl||0),0);
+  const pnl=en.reduce((s,p)=>s+p.unrealPnl,0);
+  const tad=en.reduce((s,p)=>s+p.annDiv,0);
+  const avgYield=tot>0?(tad/tot)*100:0;
 
   if(tab==="overview"){
-    const sec={};en.forEach(p=>{sec[p.sector]=(sec[p.sector]||0)+p.usd;});
-    const sa=Object.entries(sec).sort((a,b)=>b[1]-a[1]);
-    const mx=sa[0]?.[1]||1;
     el.innerHTML=`
     <div class="stats-grid">
-      ${sc("Valor Total",fmtC(tot),"Acciones equiv. USD","var(--a1)")}
+      ${sc("Valor Total",fmtC(tot),"Equiv. USD","var(--a1)")}
       ${sc("P&L Latente",cv(pnl),"No realizado",clr(pnl))}
-      ${sc("Liquidez",fmtC(sum.available_funds?sum.available_funds/0.868:null),"Disponible","var(--amber)")}
-      ${sc("Dividendo Anual",fmtC(tad),"~"+fmtC(tad/12)+"/mes","#a78bfa")}
-      ${sc("Posiciones",en.length+" acciones","+ "+opts.length+" opciones","var(--a1)")}
-      ${sc("Apalancamiento",(sum.leverage||"—")+"x","Ratio actual","var(--amber)")}
+      ${sc("Dividendo Anual",fmtC(tad),"Estimado","#a78bfa")}
+      ${sc("Ingreso Mensual",fmtC(tad/12),"Promedio","var(--green)")}
+      ${sc("Yield Medio",fmt(avgYield,2)+"%","Sobre valor actual","var(--amber)")}
+      ${sc("Posiciones",en.length,"","var(--a1)")}
     </div>
-    <div class="two-col">
-      <div class="card">
-        <div class="card-title">Top posiciones por peso</div>
-        ${en.slice(0,8).map(p=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">${lg(p.ticker,22)}<span style="font-size:11px;font-weight:700;font-family:var(--mono);width:44px">${p.ticker}</span><div class="pb"><div class="pf2" style="width:${p.w}%"></div></div><span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:36px;text-align:right">${fmt(p.w,1)}%</span></div>`).join("")}
-      </div>
-      <div class="card">
-        <div class="card-title">Distribución por sector</div>
-        ${sa.map(([n,v],i)=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px"><div style="width:8px;height:8px;border-radius:50%;background:${CL[i%CL.length]};flex-shrink:0"></div><span style="font-size:11px;flex:1">${n}</span><div class="pb"><div style="height:100%;border-radius:4px;width:${(v/mx)*100}%;background:${CL[i%CL.length]}"></div></div><span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:52px;text-align:right">${fmtC(v)}</span></div>`).join("")}
-      </div>
+    <div class="card">
+      <div class="card-title">Top posiciones por peso</div>
+      ${en.slice(0,10).map(p=>`<div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">${lg(p.ticker,22)}<span style="font-size:11px;font-weight:700;font-family:var(--mono);width:50px">${p.ticker}</span><div class="pb"><div class="pf2" style="width:${p.w}%"></div></div><span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:40px;text-align:right">${fmt(p.w,1)}%</span><span style="font-size:11px;color:${clr(p.pct)};font-family:var(--mono);width:60px;text-align:right">${fmtD(p.pct)}</span></div>`).join("")}
     </div>`;
   }
   else if(tab==="posiciones"){
-    el.innerHTML=`<div class="pos-list">${en.map((p,i)=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.sector}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Acciones</div><div class="pf-v">${fmt(p.position)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${fmt(p.market_price,2)}</div></div><div class="pf"><div class="pf-l">Valor USD</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealized_pnl)}">${fmtC(p.currency==="HKD"?p.unrealized_pnl*HKD:p.unrealized_pnl)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
+    el.innerHTML=`<div class="pos-list">${en.map(p=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.currency} · ${p.assetClass}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Cantidad</div><div class="pf-v">${fmt(p.qty,p.qty%1!==0?2:0)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${fmt(p.markPrice,2)}</div></div><div class="pf"><div class="pf-l">Coste</div><div class="pf-v">${fmt(p.costBasisPrice,2)}</div></div><div class="pf"><div class="pf-l">Valor</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealPnl)}">${fmtC(p.unrealPnl)}</div></div><div class="pf"><div class="pf-l">%</div><div class="pf-v" style="color:${clr(p.pct)}">${fmtD(p.pct)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
   }
   else if(tab==="heatmap"){
-    el.innerHTML=`<p style="font-size:12px;color:var(--muted);margin-bottom:14px">Tamaño = peso en cartera · Color = rentabilidad</p><div class="heatmap">${en.map(p=>{const it=Math.min(Math.abs(p.pct)/15,1);const bg=p.pct>=0?`rgba(16,185,129,${0.15+it*0.55})`:`rgba(239,68,68,${0.15+it*0.55})`;const bo=p.pct>=0?"rgba(16,185,129,.4)":"rgba(239,68,68,.4)";const sz=Math.max(64,Math.min(130,p.w*9));return `<div class="hc" style="background:${bg};border-color:${bo};width:${sz}px;height:${sz}px">${lg(p.ticker,Math.max(16,sz*.28))}<div style="font-size:10px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:9px;font-weight:600;font-family:var(--mono);color:${clr(p.pct)}">${fmtD(p.pct)}</div><div style="font-size:8px;color:rgba(255,255,255,.5);font-family:var(--mono)">${fmt(p.w,1)}%</div></div>`;}).join("")}</div>`;
-  }
-  else if(tab==="sectores"){
-    const sec={};en.forEach(p=>{sec[p.sector]=(sec[p.sector]||0)+p.usd;});
-    const sa=Object.entries(sec).sort((a,b)=>b[1]-a[1]);const mx=sa[0]?.[1]||1;
-    el.innerHTML=`<div class="card"><div class="card-title">Valor por sector</div>${sa.map(([n,v],i)=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><div style="width:10px;height:10px;border-radius:50%;background:${CL[i%CL.length]};flex-shrink:0"></div><span style="font-size:12px;width:150px;flex-shrink:0">${n}</span><div class="pb"><div style="height:100%;border-radius:4px;width:${(v/mx)*100}%;background:${CL[i%CL.length]}"></div></div><span style="font-size:12px;color:var(--muted);font-family:var(--mono);width:68px;text-align:right">${fmtC(v)}</span><span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:38px;text-align:right">${fmt((v/tot)*100,1)}%</span></div>`).join("")}</div><div class="card"><div class="card-title">Posiciones por sector</div>${sa.map(([s2],i)=>{const ps=en.filter(p=>p.sector===s2);return `<div style="margin-bottom:12px"><div style="font-size:10px;color:${CL[i%CL.length]};font-family:var(--mono);text-transform:uppercase;margin-bottom:4px">${s2}</div><div style="display:flex;flex-wrap:wrap;gap:6px">${ps.map(p=>`<div style="background:var(--s2);border:1px solid var(--border);border-radius:6px;padding:4px 10px;display:flex;align-items:center;gap:6px">${lg(p.ticker,16)}<span style="font-size:11px;font-family:var(--mono)">${p.ticker}</span><span style="font-size:10px;color:${clr(p.pct)}">${fmtD(p.pct)}</span></div>`).join("")}</div></div>`;}).join("")}</div>`;
+    el.innerHTML=`<p style="font-size:12px;color:var(--muted);margin-bottom:14px">Tamaño = peso en cartera · Color = rentabilidad</p><div class="heatmap">${en.map(p=>{const it=Math.min(Math.abs(p.pct)/15,1);const bg=p.pct>=0?`rgba(16,185,129,${0.15+it*0.55})`:`rgba(239,68,68,${0.15+it*0.55})`;const bo=p.pct>=0?"rgba(16,185,129,.4)":"rgba(239,68,68,.4)";const sz=Math.max(64,Math.min(140,p.w*9));return `<div class="hc" style="background:${bg};border-color:${bo};width:${sz}px;height:${sz}px">${lg(p.ticker,Math.max(16,sz*.28))}<div style="font-size:10px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:9px;font-weight:600;font-family:var(--mono);color:${clr(p.pct)}">${fmtD(p.pct)}</div><div style="font-size:8px;color:rgba(255,255,255,.5);font-family:var(--mono)">${fmt(p.w,1)}%</div></div>`;}).join("")}</div>`;
   }
   else if(tab==="dividendos"){
-    const dvs=en.filter(p=>p.ad>0).sort((a,b)=>b.ad-a.ad);
-    el.innerHTML=`<div class="stats-grid" style="margin-bottom:16px">${sc("Dividendo Anual",fmtC(tad),"Total cartera","#a78bfa")}${sc("Ingreso Mensual",fmtC(tad/12),"Promedio","var(--green)")}${sc("Con Dividendo",dvs.length+" valores","","var(--a1)")}</div><div class="card"><div class="card-title">Dividendo anual por posición</div>${dvs.map(p=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">${lg(p.ticker,22)}<span style="font-size:12px;font-weight:700;font-family:var(--mono);width:50px">${p.ticker}</span><div class="pb"><div class="pf2" style="width:${(p.ad/dvs[0].ad)*100}%"></div></div><span style="font-size:12px;color:#a78bfa;font-family:var(--mono);width:60px;text-align:right">${fmtC(p.ad)}</span></div>`).join("")}</div>${dvs.map((p,i)=>`<div class="div-row">${lg(p.ticker,26)}<div style="flex:1"><div style="font-size:13px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:10px;color:var(--muted)">${p.sector}</div></div><span class="badge" style="background:rgba(167,139,250,.15);color:#a78bfa;border:1px solid rgba(167,139,250,.3)">${p.df}</span><div style="text-align:right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#a78bfa">${fmtC(p.ad)}/año</div><div style="font-size:10px;color:var(--green)">${fmt(p.dy,2)}% yield</div></div></div>`).join("")}`;
+    const dvs=en.filter(p=>p.annDiv>0).sort((a,b)=>b.annDiv-a.annDiv);
+    if(dvs.length===0){
+      el.innerHTML=`<div class="card"><div class="card-title">Sin datos de dividendos</div><p style="font-size:12px;color:var(--muted)">No hay dividendos estimados para tus posiciones actuales en la base de datos local. Puedes ampliarla editando la constante DIV en el código.</p></div>`;
+      return;
+    }
+    el.innerHTML=`
+    <div class="stats-grid" style="margin-bottom:16px">
+      ${sc("Dividendo Anual",fmtC(tad),"Total estimado","#a78bfa")}
+      ${sc("Ingreso Mensual",fmtC(tad/12),"Promedio","var(--green)")}
+      ${sc("Con Dividendo",dvs.length+" valores","","var(--a1)")}
+    </div>
+    <div class="card">
+      <div class="card-title">Dividendo anual por posición</div>
+      ${dvs.map(p=>`<div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">${lg(p.ticker,22)}<span style="font-size:12px;font-weight:700;font-family:var(--mono);width:50px">${p.ticker}</span><div class="pb"><div class="pf2" style="width:${(p.annDiv/dvs[0].annDiv)*100}%"></div></div><span style="font-size:12px;color:#a78bfa;font-family:var(--mono);width:60px;text-align:right">${fmtC(p.annDiv)}</span></div>`).join("")}
+    </div>
+    ${dvs.map(p=>`<div class="div-row">${lg(p.ticker,26)}<div style="flex:1"><div style="font-size:13px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:10px;color:var(--muted)">${fmt(p.qty,p.qty%1!==0?2:0)} acciones</div></div><div style="text-align:right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#a78bfa">${fmtC(p.annDiv)}/año</div><div style="font-size:10px;color:var(--green)">Yield actual: ${fmt(p.curYield,2)}%</div><div style="font-size:10px;color:var(--amber)">YOC: ${fmt(p.yoc,2)}%</div></div></div>`).join("")}`;
   }
-  else if(tab==="opciones"){
-    el.innerHTML=`<div class="stats-grid" style="margin-bottom:16px">${sc("Opciones Abiertas",opts.length+" contratos","","var(--a1)")}${sc("P&L Opciones",cv(opnl),"Latente",clr(opnl))}</div>${opts.map(p=>{const desc=p.contract_description||"";const isC=desc.includes(" C ");const tp=isC?"CALL":"PUT";const tc=isC?"var(--amber)":"var(--a2)";const pu=p.currency==="HKD"?p.unrealized_pnl*HKD:p.unrealized_pnl;return `<div class="opt-row"><div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap"><span style="padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;font-family:var(--mono);background:${tc}22;color:${tc};border:1px solid ${tc}44">${tp}</span><span style="font-size:11px;font-family:var(--mono)">${desc}</span></div><div style="display:flex;gap:14px;flex-wrap:wrap"><div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">PRIMA</div><div style="font-size:12px;font-weight:600;font-family:var(--mono)">$${fmt(p.average_price,2)}</div></div><div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">PRECIO ACT.</div><div style="font-size:12px;font-weight:600;font-family:var(--mono)">$${fmt(p.market_price,2)}</div></div><div><div style="font-size:9px;color:var(--muted);font-family:var(--mono)">P&L</div><div style="font-size:12px;font-weight:600;font-family:var(--mono);color:${clr(pu)}">${fmtC(pu)}</div></div></div></div>`;}).join("")}`;
+  else if(tab==="rentabilidad"){
+    const withTir=en.filter(p=>p.tir!=null).sort((a,b)=>b.tir-a.tir);
+    el.innerHTML=`
+    <p style="font-size:12px;color:var(--muted);margin-bottom:14px">TIR = rentabilidad anualizada simple desde apertura de posición (no incluye dividendos cobrados ni aportaciones parciales)</p>
+    ${withTir.map(p=>`<div class="div-row">${lg(p.ticker,26)}<div style="flex:1"><div style="font-size:13px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:10px;color:var(--muted)">${p.years?fmt(p.years,1)+" años en cartera":""}</div></div><div style="text-align:right"><div style="font-size:13px;font-weight:700;font-family:var(--mono);color:${clr(p.tir)}">${fmtD(p.tir)}</div><div style="font-size:10px;color:var(--muted)">anualizado</div></div></div>`).join("")}
+    ${en.filter(p=>p.tir==null).length>0?`<p style="font-size:11px;color:var(--muted);margin-top:10px">Sin fecha de apertura disponible para ${en.filter(p=>p.tir==null).length} posición(es).</p>`:""}`;
   }
 }
 </script>
