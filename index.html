@@ -148,7 +148,12 @@ async function loadData(){
     const r=await fetch("/.netlify/functions/portfolio");
     const data=await r.json();
     if(data.error){
-      document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ ${data.error}</div>`;
+      document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ ${data.error}${data.raw?`<pre style="white-space:pre-wrap;margin-top:10px;font-size:10px;opacity:.7">${data.raw.replace(/</g,'&lt;')}</pre>`:""}</div>`;
+      btn.disabled=false;btn.textContent="⟳ Actualizar";
+      return;
+    }
+    if(data.debug){
+      document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ 0 posiciones encontradas. Respuesta cruda de IBKR:<pre style="white-space:pre-wrap;margin-top:10px;font-size:10px;opacity:.7">${data.debug.replace(/</g,'&lt;')}</pre></div>`;
       btn.disabled=false;btn.textContent="⟳ Actualizar";
       return;
     }
