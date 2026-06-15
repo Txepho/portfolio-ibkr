@@ -1,5 +1,3 @@
-// Netlify function: fetches IBKR Flex Query report and returns parsed positions
-
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -35,11 +33,12 @@ exports.handler = async (event) => {
 
     if (!refMatch) {
       return {
-        statusCode: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
         body: JSON.stringify({
-          error: errMatch ? errMatch[1] : "No se pudo obtener el código de referencia",
-          raw: reqText.slice(0, 1000)
+          error: errMatch ? errMatch[1] : "No se pudo obtener el código de referencia (paso 1)",
+          step: 1,
+          raw: reqText.slice(0, 1500)
         })
       };
     }
@@ -47,17 +46,27 @@ exports.handler = async (event) => {
 
     // Step 2: Poll for the report (it can take a few seconds to generate)
     let xmlData = null;
+    let lastRaw = "";
     let attempts = 0;
-    while (attempts < 6) {
+    while (attempts < 8) {
       await new Promise(r => setTimeout(r, 2500));
       const getUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=${refCode}&t=${TOKEN}&v=3`;
       const getRes = await fetch(getUrl);
       const text = await getRes.text();
+      lastRaw = text;
 
-      // If still processing, IBKR returns an error message asking to wait
-      if (text.includes("<ErrorMessage>") && text.includes("not yet available")) {
-        attempts++;
-        continue;
+      if (text.includes("<ErrorMessage>")) {
+        const em = text.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
+        if (em && /not yet available|generation in progress|try again/i.test(em[1])) {
+          attempts++;
+          continue;
+        }
+        // Different error - return immediately
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          body: JSON.stringify({ error: em ? em[1] : "Error desconocido", step: 2, raw: text.slice(0, 1500) })
+        };
       }
       xmlData = text;
       break;
@@ -65,19 +74,9 @@ exports.handler = async (event) => {
 
     if (!xmlData) {
       return {
-        statusCode: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: "El informe de IBKR no estuvo listo a tiempo. Inténtalo de nuevo en unos segundos." })
-      };
-    }
-
-    // Check for error in final response
-    const finalErr = xmlData.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
-    if (finalErr) {
-      return {
-        statusCode: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: finalErr[1], raw: xmlData.slice(0, 1000) })
+        statusCode: 200,
+        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+        body: JSON.stringify({ error: "El informe de IBKR no estuvo listo tras 8 intentos (20s).", step: 3, raw: lastRaw.slice(0, 1500) })
       };
     }
 
@@ -90,7 +89,6 @@ exports.handler = async (event) => {
       const attrRegex = /(\w+)="([^"]*)"/g;
       let attr;
       while ((attr = attrRegex.exec(match[1])) !== null) {
-        // Decode XML entities
         let val = attr[2]
           .replace(/&amp;/g, "&")
           .replace(/&lt;/g, "<")
@@ -109,14 +107,19 @@ exports.handler = async (event) => {
         "Access-Control-Allow-Origin": "*",
         "Cache-Control": "no-store"
       },
-      body: JSON.stringify({ positions, count: positions.length, fetchedAt: new Date().toISOString() })
+      body: JSON.stringify({
+        positions,
+        count: positions.length,
+        fetchedAt: new Date().toISOString(),
+        debug: positions.length === 0 ? xmlData.slice(0, 1500) : undefined
+      })
     };
 
   } catch (err) {
     return {
-      statusCode: 500,
-      headers: { "Access-Control-Allow-Origin": "*" },
-      body: JSON.stringify({ error: err.message })
+      statusCode: 200,
+      headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+      body: JSON.stringify({ error: err.message, step: "exception" })
     };
   }
 };
