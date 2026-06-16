@@ -23,7 +23,6 @@ exports.handler = async (event) => {
   }
 
   try {
-    // Step 1: Request the report generation
     const reqUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${TOKEN}&q=${QUERY_ID}&v=3`;
     const reqRes = await fetch(reqUrl);
     const reqText = await reqRes.text();
@@ -35,16 +34,11 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({
-          error: errMatch ? errMatch[1] : "No se pudo obtener el código de referencia (paso 1)",
-          step: 1,
-          raw: reqText.slice(0, 1500)
-        })
+        body: JSON.stringify({ error: errMatch ? errMatch[1] : "Sin código de referencia", step: 1, raw: reqText.slice(0, 1500) })
       };
     }
     const refCode = refMatch[1];
 
-    // Step 2: Poll for the report (it can take a few seconds to generate)
     let xmlData = null;
     let lastRaw = "";
     let attempts = 0;
@@ -61,7 +55,6 @@ exports.handler = async (event) => {
           attempts++;
           continue;
         }
-        // Different error - return immediately
         return {
           statusCode: 200,
           headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
@@ -76,28 +69,48 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: "El informe de IBKR no estuvo listo tras 8 intentos (20s).", step: 3, raw: lastRaw.slice(0, 1500) })
+        body: JSON.stringify({ error: "Informe no listo tras 8 intentos.", step: 3, raw: lastRaw.slice(0, 1500) })
       };
     }
 
-    // Step 3: Parse OpenPosition elements from XML
-    const positions = [];
-    const posRegex = /<OpenPosition\b([^>]*?)\/?>/g;
-    let match;
-    while ((match = posRegex.exec(xmlData)) !== null) {
-      const attrs = {};
-      const attrRegex = /(\w+)="([^"]*)"/g;
-      let attr;
-      while ((attr = attrRegex.exec(match[1])) !== null) {
-        let val = attr[2]
-          .replace(/&amp;/g, "&")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&quot;/g, '"')
-          .replace(/&apos;/g, "'");
-        attrs[attr[1]] = val;
+    // Parse ALL self-closing tags that look like position-like elements
+    // Try multiple possible tag names IBKR might use
+    const tagNames = ["OpenPosition", "OptionEAE"];
+    let positions = [];
+    let usedTag = null;
+
+    for (const tagName of tagNames) {
+      const regex = new RegExp(`<${tagName}\\b([^>]*?)\\/?>`, "g");
+      let match;
+      const found = [];
+      while ((match = regex.exec(xmlData)) !== null) {
+        const attrs = {};
+        const attrRegex = /(\w+)="([^"]*)"/g;
+        let attr;
+        while ((attr = attrRegex.exec(match[1])) !== null) {
+          let val = attr[2]
+            .replace(/&amp;/g, "&")
+            .replace(/&lt;/g, "<")
+            .replace(/&gt;/g, ">")
+            .replace(/&quot;/g, '"')
+            .replace(/&apos;/g, "'");
+          attrs[attr[1]] = val;
+        }
+        if (Object.keys(attrs).length > 0) found.push(attrs);
       }
-      if (attrs.symbol) positions.push(attrs);
+      if (found.length > 0) {
+        positions = found;
+        usedTag = tagName;
+        break;
+      }
+    }
+
+    // Extract just the tag names present in the XML for debugging
+    const allTags = new Set();
+    const tagRegex = /<(\w+)[\s/>]/g;
+    let tm;
+    while ((tm = tagRegex.exec(xmlData)) !== null) {
+      allTags.add(tm[1]);
     }
 
     return {
@@ -110,8 +123,11 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         positions,
         count: positions.length,
+        usedTag,
         fetchedAt: new Date().toISOString(),
-        debug: positions.length === 0 ? xmlData.slice(0, 1500) : undefined
+        availableTags: positions.length === 0 ? Array.from(allTags) : undefined,
+        samplePosition: positions.length > 0 ? positions[0] : undefined,
+        debug: positions.length === 0 ? xmlData.slice(0, 2000) : undefined
       })
     };
 
