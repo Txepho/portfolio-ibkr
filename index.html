@@ -180,7 +180,7 @@ const FX_TO_USD={USD:1,EUR:1.08,HKD:0.128,GBP:1.27};
 
 function enrich(positions){
   // Filter stock-like positions (skip cash/forex)
-  const stocks=(positions||[]).filter(p=>p.assetClass==="STK"||p.assetClass==="FUND");
+  const stocks=(positions||[]).filter(p=>p.assetCategory==="STK"||p.assetCategory==="FUND");
   const tot=stocks.reduce((a,p)=>{
     const fx=FX_TO_USD[p.currency]||parseFloat(p.fxRateToBase)||1;
     return a+(parseFloat(p.positionValue)||0)*fx;
@@ -192,7 +192,7 @@ function enrich(positions){
     const posVal=(parseFloat(p.positionValue)||0)*fx;
     const costBasisMoney=(parseFloat(p.costBasisMoney)||0)*fx;
     const costBasisPrice=parseFloat(p.costBasisPrice)||0;
-    const unrealPnl=(parseFloat(p.unrealizedPnL)||0)*fx;
+    const unrealPnl=(parseFloat(p.fifoPnlUnrealized)||0)*fx;
     const pct=costBasisMoney!==0?((posVal-costBasisMoney)/Math.abs(costBasisMoney))*100:0;
     const w=tot>0?(posVal/tot)*100:0;
     const annDivPerShare=DIV[p.symbol]||0;
@@ -250,7 +250,7 @@ function renderMain(tab){
     </div>`;
   }
   else if(tab==="posiciones"){
-    el.innerHTML=`<div class="pos-list">${en.map(p=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.currency} · ${p.assetClass}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Cantidad</div><div class="pf-v">${fmt(p.qty,p.qty%1!==0?2:0)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${fmt(p.markPrice,2)}</div></div><div class="pf"><div class="pf-l">Coste</div><div class="pf-v">${fmt(p.costBasisPrice,2)}</div></div><div class="pf"><div class="pf-l">Valor</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealPnl)}">${fmtC(p.unrealPnl)}</div></div><div class="pf"><div class="pf-l">%</div><div class="pf-v" style="color:${clr(p.pct)}">${fmtD(p.pct)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
+    el.innerHTML=`<div class="pos-list">${en.map(p=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.currency} · ${p.assetCategory}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Cantidad</div><div class="pf-v">${fmt(p.qty,p.qty%1!==0?2:0)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${fmt(p.markPrice,2)}</div></div><div class="pf"><div class="pf-l">Coste</div><div class="pf-v">${fmt(p.costBasisPrice,2)}</div></div><div class="pf"><div class="pf-l">Valor</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealPnl)}">${fmtC(p.unrealPnl)}</div></div><div class="pf"><div class="pf-l">%</div><div class="pf-v" style="color:${clr(p.pct)}">${fmtD(p.pct)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
   }
   else if(tab==="heatmap"){
     el.innerHTML=`<p style="font-size:12px;color:var(--muted);margin-bottom:14px">Tamaño = peso en cartera · Color = rentabilidad</p><div class="heatmap">${en.map(p=>{const it=Math.min(Math.abs(p.pct)/15,1);const bg=p.pct>=0?`rgba(16,185,129,${0.15+it*0.55})`:`rgba(239,68,68,${0.15+it*0.55})`;const bo=p.pct>=0?"rgba(16,185,129,.4)":"rgba(239,68,68,.4)";const sz=Math.max(64,Math.min(140,p.w*9));return `<div class="hc" style="background:${bg};border-color:${bo};width:${sz}px;height:${sz}px">${lg(p.ticker,Math.max(16,sz*.28))}<div style="font-size:10px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:9px;font-weight:600;font-family:var(--mono);color:${clr(p.pct)}">${fmtD(p.pct)}</div><div style="font-size:8px;color:rgba(255,255,255,.5);font-family:var(--mono)">${fmt(p.w,1)}%</div></div>`;}).join("")}</div>`;
