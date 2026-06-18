@@ -42,8 +42,9 @@ exports.handler = async (event) => {
     let xmlData = null;
     let lastRaw = "";
     let attempts = 0;
-    while (attempts < 8) {
-      await new Promise(r => setTimeout(r, 2500));
+    const MAX_ATTEMPTS = 10;
+    while (attempts < MAX_ATTEMPTS) {
+      await new Promise(r => setTimeout(r, 3000));
       const getUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=${refCode}&t=${TOKEN}&v=3`;
       const getRes = await fetch(getUrl);
       const text = await getRes.text();
@@ -51,7 +52,8 @@ exports.handler = async (event) => {
 
       if (text.includes("<ErrorMessage>")) {
         const em = text.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
-        if (em && /not yet available|generation in progress|try again/i.test(em[1])) {
+        // Retry on transient errors (1001 "could not be generated", "not yet available", etc.)
+        if (em && /not yet available|generation in progress|try again|could not be generated/i.test(em[1])) {
           attempts++;
           continue;
         }
@@ -69,48 +71,28 @@ exports.handler = async (event) => {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: "Informe no listo tras 8 intentos.", step: 3, raw: lastRaw.slice(0, 1500) })
+        body: JSON.stringify({ error: `IBKR no generó el informe tras ${MAX_ATTEMPTS} intentos (~${MAX_ATTEMPTS*3}s). Esto es un fallo temporal de los servidores de IBKR, no de la app. Pulsa Actualizar de nuevo en unos minutos.`, step: 3, raw: lastRaw.slice(0, 800) })
       };
     }
 
-    // Parse ALL self-closing tags that look like position-like elements
-    // Try multiple possible tag names IBKR might use
-    const tagNames = ["OpenPosition", "OptionEAE"];
-    let positions = [];
-    let usedTag = null;
-
-    for (const tagName of tagNames) {
-      const regex = new RegExp(`<${tagName}\\b([^>]*?)\\/?>`, "g");
-      let match;
-      const found = [];
-      while ((match = regex.exec(xmlData)) !== null) {
-        const attrs = {};
-        const attrRegex = /(\w+)="([^"]*)"/g;
-        let attr;
-        while ((attr = attrRegex.exec(match[1])) !== null) {
-          let val = attr[2]
-            .replace(/&amp;/g, "&")
-            .replace(/&lt;/g, "<")
-            .replace(/&gt;/g, ">")
-            .replace(/&quot;/g, '"')
-            .replace(/&apos;/g, "'");
-          attrs[attr[1]] = val;
-        }
-        if (Object.keys(attrs).length > 0) found.push(attrs);
+    // Parse OpenPosition elements (confirmed field names from real IBKR export)
+    const positions = [];
+    const posRegex = /<OpenPosition\b([^>]*?)\/?>/g;
+    let match;
+    while ((match = posRegex.exec(xmlData)) !== null) {
+      const attrs = {};
+      const attrRegex = /(\w+)="([^"]*)"/g;
+      let attr;
+      while ((attr = attrRegex.exec(match[1])) !== null) {
+        let val = attr[2]
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/&quot;/g, '"')
+          .replace(/&apos;/g, "'");
+        attrs[attr[1]] = val;
       }
-      if (found.length > 0) {
-        positions = found;
-        usedTag = tagName;
-        break;
-      }
-    }
-
-    // Extract just the tag names present in the XML for debugging
-    const allTags = new Set();
-    const tagRegex = /<(\w+)[\s/>]/g;
-    let tm;
-    while ((tm = tagRegex.exec(xmlData)) !== null) {
-      allTags.add(tm[1]);
+      if (attrs.symbol) positions.push(attrs);
     }
 
     return {
@@ -123,10 +105,7 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         positions,
         count: positions.length,
-        usedTag,
         fetchedAt: new Date().toISOString(),
-        availableTags: positions.length === 0 ? Array.from(allTags) : undefined,
-        samplePosition: positions.length > 0 ? positions[0] : undefined,
         debug: positions.length === 0 ? xmlData.slice(0, 2000) : undefined
       })
     };
