@@ -1,4 +1,10 @@
 // Netlify function: fetches IBKR Flex Query reports (positions + dividends/options)
+// Caches results using Netlify Blobs to avoid hitting IBKR's per-token rate limit.
+
+const { getStore } = require("@netlify/blobs");
+
+const CACHE_KEY = "portfolio-cache";
+const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 async function fetchFlexReport(token, queryId) {
   const reqUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${token}&q=${queryId}&v=3`;
@@ -81,6 +87,7 @@ exports.handler = async (event) => {
   const TOKEN = process.env.IBKR_FLEX_TOKEN;
   const QUERY_ID = process.env.IBKR_QUERY_ID || "1541787";
   const OPTIONS_QUERY_ID = process.env.IBKR_OPTIONS_QUERY_ID || "1495741";
+  const forceRefresh = event.queryStringParameters && event.queryStringParameters.force === "1";
 
   if (!TOKEN) {
     return {
@@ -90,14 +97,47 @@ exports.handler = async (event) => {
     };
   }
 
+  const store = getStore("portfolio-data");
+
+  // ── Try cache first ──
+  if (!forceRefresh) {
+    try {
+      const cached = await store.get(CACHE_KEY, { type: "json" });
+      if (cached && cached.fetchedAt) {
+        const age = Date.now() - new Date(cached.fetchedAt).getTime();
+        if (age < CACHE_TTL_MS) {
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+            body: JSON.stringify({ ...cached, cached: true, cacheAgeMinutes: Math.round(age / 60000) })
+          };
+        }
+      }
+    } catch (e) {
+      // Cache miss or error reading cache - continue to fetch fresh data
+    }
+  }
+
+  // ── Fetch fresh data from IBKR ──
   try {
-    // Fetch both reports in parallel
     const [posReport, optReport] = await Promise.all([
       fetchFlexReport(TOKEN, QUERY_ID),
       fetchFlexReport(TOKEN, OPTIONS_QUERY_ID)
     ]);
 
     if (posReport.error) {
+      // If we have stale cache, serve it instead of failing completely
+      try {
+        const stale = await store.get(CACHE_KEY, { type: "json" });
+        if (stale && stale.fetchedAt) {
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+            body: JSON.stringify({ ...stale, cached: true, stale: true, staleError: posReport.error })
+          };
+        }
+      } catch (e) {}
+
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
@@ -120,6 +160,20 @@ exports.handler = async (event) => {
       optionsError = optReport.error;
     }
 
+    const result = {
+      positions,
+      dividends,
+      optionPositions,
+      optionsError,
+      count: positions.length,
+      fetchedAt: new Date().toISOString()
+    };
+
+    // Save to cache (best-effort, don't fail the response if this fails)
+    try {
+      await store.setJSON(CACHE_KEY, result);
+    } catch (e) {}
+
     return {
       statusCode: 200,
       headers: {
@@ -128,17 +182,25 @@ exports.handler = async (event) => {
         "Cache-Control": "no-store"
       },
       body: JSON.stringify({
-        positions,
-        dividends,
-        optionPositions,
-        optionsError,
-        count: positions.length,
-        fetchedAt: new Date().toISOString(),
+        ...result,
+        cached: false,
         debug: positions.length === 0 ? posReport.xml.slice(0, 2000) : undefined
       })
     };
 
   } catch (err) {
+    // Try to serve stale cache on unexpected errors too
+    try {
+      const stale = await store.get(CACHE_KEY, { type: "json" });
+      if (stale && stale.fetchedAt) {
+        return {
+          statusCode: 200,
+          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+          body: JSON.stringify({ ...stale, cached: true, stale: true, staleError: err.message })
+        };
+      }
+    } catch (e) {}
+
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
