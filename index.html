@@ -131,6 +131,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-icon" id="privacyBtn" onclick="togglePrivacy()" title="Ocultar importes">👁️</button>
       <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema">🌙</button>
       <button class="btn-sm" id="btnr" onclick="loadData()">⟳ Actualizar</button>
       <button class="btn-out" onclick="doLogout()">✕</button>
@@ -173,6 +174,22 @@ function toggleTheme(){
   renderMain(st.tab);
 }
 applyTheme(localStorage.getItem("theme")||"dark");
+
+// ── PRIVACY MODE (hide amounts for screenshots) ──
+let privacyMode=localStorage.getItem("privacyMode")==="1";
+function applyPrivacyBtn(){
+  document.getElementById("privacyBtn").textContent=privacyMode?"🙈":"👁️";
+  document.getElementById("privacyBtn").title=privacyMode?"Mostrar importes":"Ocultar importes";
+}
+function togglePrivacy(){
+  privacyMode=!privacyMode;
+  localStorage.setItem("privacyMode",privacyMode?"1":"0");
+  applyPrivacyBtn();
+  Object.values(charts).forEach(c=>c&&c.destroy());
+  charts={};
+  if(st.positions)renderMain(st.tab);
+}
+applyPrivacyBtn();
 
 // ── AUTH ──
 function doLogin(){
@@ -226,7 +243,7 @@ async function loadData(){
 // ── FORMATTERS ──
 const fmt=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString("es-ES",{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtD=(n)=>n==null||isNaN(n)?"—":`${n>=0?"+":""}${Number(n).toFixed(2)}%`;
-const fmtC=(n,cur="$")=>n==null||isNaN(n)?"—":`${cur}${fmt(n,0)}`;
+const fmtC=(n,cur="$")=>n==null||isNaN(n)?"—":privacyMode?`${cur}••••`:`${cur}${fmt(n,0)}`;
 const clr=(n)=>n>=0?"var(--green)":"var(--red)";
 const cv=(n,cur="$")=>`<span style="color:${clr(n)}">${fmtC(n,cur)}</span>`;
 const sc=(l,v,s,c)=>`<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value" style="color:${c}">${v}</div>${s?`<div class="stat-sub">${s}</div>`:""}</div>`;
@@ -392,7 +409,7 @@ function renderMain(tab){
   }
 
   else if(tab==="posiciones"){
-    el.innerHTML=`<div class="pos-list">${en.map(p=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.currency} · ${p.assetCategory}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Cantidad</div><div class="pf-v">${fmt(p.qty,p.qty%1!==0?2:0)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${fmt(p.markPrice,2)}</div></div><div class="pf"><div class="pf-l">Coste</div><div class="pf-v">${fmt(p.costBasisPrice,2)}</div></div><div class="pf"><div class="pf-l">Valor</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealPnl)}">${fmtC(p.unrealPnl)}</div></div><div class="pf"><div class="pf-l">%</div><div class="pf-v" style="color:${clr(p.pct)}">${fmtD(p.pct)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
+    el.innerHTML=`<div class="pos-list">${en.map(p=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.currency} · ${p.assetCategory}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Cantidad</div><div class="pf-v">${fmt(p.qty,p.qty%1!==0?2:0)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${privacyMode?"••••":fmt(p.markPrice,2)}</div></div><div class="pf"><div class="pf-l">Coste</div><div class="pf-v">${privacyMode?"••••":fmt(p.costBasisPrice,2)}</div></div><div class="pf"><div class="pf-l">Valor</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealPnl)}">${fmtC(p.unrealPnl)}</div></div><div class="pf"><div class="pf-l">%</div><div class="pf-v" style="color:${clr(p.pct)}">${fmtD(p.pct)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
   }
 
   else if(tab==="heatmap"){
@@ -457,20 +474,20 @@ function renderMain(tab){
         charts.divYearly=new Chart(document.getElementById("chartDivYearly"),{
           type:"bar",
           data:{labels:yearly.map(y=>y[0]),datasets:[{label:"Dividendos (USD)",data:yearly.map(y=>+y[1].toFixed(0)),backgroundColor:"#a78bfa",borderRadius:6}]},
-          options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>"$"+fmt(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>"$"+v}}}}
+          options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":"$"+fmt(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":"$"+v}}}}
         });
       }
       // Monthly chart
       charts.divMonthly=new Chart(document.getElementById("chartDivMonthly"),{
         type:"bar",
         data:{labels:monthly.map(m=>m.label),datasets:[{label:"Dividendos (USD)",data:monthly.map(m=>+m.total.toFixed(0)),backgroundColor:"#10b981",borderRadius:6}]},
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>"$"+fmt(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick,maxRotation:45,minRotation:45}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>"$"+v}}}}
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":"$"+fmt(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick,maxRotation:45,minRotation:45}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":"$"+v}}}}
       });
       // By ticker chart
       charts.divByTicker=new Chart(document.getElementById("chartDivByTicker"),{
         type:"bar",
         data:{labels:dvs.map(p=>p.ticker),datasets:[{label:"Dividendo anual (USD)",data:dvs.map(p=>+p.annDiv.toFixed(0)),backgroundColor:dvs.map((_,i)=>CL[i%CL.length]),borderRadius:6}]},
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>"$"+fmt(c.parsed.y)+"/año"}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>"$"+v}}}}
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":"$"+fmt(c.parsed.y)+"/año"}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":"$"+v}}}}
       });
     },0);
   }
@@ -544,7 +561,7 @@ function renderMain(tab){
           <div class="pb" style="height:8px;margin-bottom:6px"><div style="height:100%;border-radius:4px;width:${(d.usd/maxUsd)*100}%;background:linear-gradient(90deg,var(--a1),var(--a2))"></div></div>
           <div style="display:flex;gap:16px;flex-wrap:wrap">
             <span style="font-size:11px;color:var(--muted)">Valor: <b style="color:var(--text)">${fmtC(d.usd)}</b></span>
-            <span style="font-size:11px;color:var(--muted)">P&L: <b style="color:${clr(d.pnl)}">${fmt(d.pnl,0)} ${ccy}</b></span>
+            <span style="font-size:11px;color:var(--muted)">P&L: <b style="color:${clr(d.pnl)}">${privacyMode?"••••":fmt(d.pnl,0)+" "+ccy}</b></span>
             <span style="font-size:11px;color:var(--muted)">Peso: <b style="color:var(--a1)">${fmt((d.usd/tot)*100,1)}%</b></span>
           </div>
         </div>
