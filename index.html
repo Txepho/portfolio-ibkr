@@ -133,7 +133,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
     <div class="header-right">
       <button class="btn-icon" id="privacyBtn" onclick="togglePrivacy()" title="Ocultar importes">👁️</button>
       <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema">🌙</button>
-      <button class="btn-sm" id="btnr" onclick="loadData()">⟳ Actualizar</button>
+      <button class="btn-sm" id="btnr" onclick="loadData(false)">⟳ Actualizar</button>
+      <button class="btn-icon" onclick="loadData(true)" title="Forzar nueva consulta a IBKR (consume cuota)">⚡</button>
       <button class="btn-out" onclick="doLogout()">✕</button>
     </div>
   </div>
@@ -210,12 +211,13 @@ if(sessionStorage.getItem("auth")==="1"){
 }
 
 // ── DATA LOADING ──
-async function loadData(){
+async function loadData(force){
   const btn=document.getElementById("btnr");
   btn.disabled=true;btn.textContent="⏳ Cargando…";
-  document.getElementById("mc").innerHTML=`<div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">Consultando IBKR (puede tardar 10-30s)…</p></div>`;
+  document.getElementById("mc").innerHTML=`<div class="loading-state"><div class="spinner"></div><p style="color:var(--muted);font-size:13px">${force?"Forzando actualización desde IBKR (10-30s)…":"Cargando cartera…"}</p></div>`;
   try{
-    const r=await fetch("/.netlify/functions/portfolio");
+    const url="/.netlify/functions/portfolio"+(force?"?force=1":"");
+    const r=await fetch(url);
     const data=await r.json();
     if(data.error){
       document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ ${data.error}${data.raw?`<pre style="white-space:pre-wrap;margin-top:10px;font-size:10px;opacity:.7">${data.raw.replace(/</g,'&lt;')}</pre>`:""}</div>`;
@@ -232,7 +234,15 @@ async function loadData(){
     st.optionPositions=data.optionPositions||[];
     st.optionsError=data.optionsError;
     st.fetchedAt=data.fetchedAt;
-    document.getElementById("upd").textContent="Actualizado: "+new Date(data.fetchedAt).toLocaleString("es-ES");
+
+    const fechaTxt=new Date(data.fetchedAt).toLocaleString("es-ES");
+    if(data.stale){
+      document.getElementById("upd").innerHTML=`⚠️ Datos antiguos (${fechaTxt}) — IBKR no disponible ahora mismo`;
+    } else if(data.cached){
+      document.getElementById("upd").innerHTML=`Caché · ${fechaTxt} <span style="opacity:.6">(hace ${data.cacheAgeMinutes||0} min · próxima auto. en ${Math.max(0,360-(data.cacheAgeMinutes||0))} min)</span>`;
+    } else {
+      document.getElementById("upd").innerHTML=`✓ Actualizado ahora · ${fechaTxt}`;
+    }
   }catch(e){
     document.getElementById("mc").innerHTML=`<div class="error-box">⚠️ Error: ${e.message}</div>`;
   }
