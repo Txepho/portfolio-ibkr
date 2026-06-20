@@ -1,3 +1,70 @@
+// Netlify function: fetches IBKR Flex Query reports (positions + dividends/options)
+
+async function fetchFlexReport(token, queryId) {
+  const reqUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${token}&q=${queryId}&v=3`;
+  const reqRes = await fetch(reqUrl);
+  const reqText = await reqRes.text();
+
+  const refMatch = reqText.match(/<ReferenceCode>(.*?)<\/ReferenceCode>/);
+  const errMatch = reqText.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
+
+  if (!refMatch) {
+    return { error: errMatch ? errMatch[1] : "Sin código de referencia", raw: reqText.slice(0, 1000) };
+  }
+  const refCode = refMatch[1];
+
+  let xmlData = null;
+  let lastRaw = "";
+  let attempts = 0;
+  const MAX_ATTEMPTS = 10;
+  while (attempts < MAX_ATTEMPTS) {
+    await new Promise(r => setTimeout(r, 3000));
+    const getUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=${refCode}&t=${token}&v=3`;
+    const getRes = await fetch(getUrl);
+    const text = await getRes.text();
+    lastRaw = text;
+
+    if (text.includes("<ErrorMessage>")) {
+      const em = text.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
+      if (em && /not yet available|generation in progress|try again|could not be generated/i.test(em[1])) {
+        attempts++;
+        continue;
+      }
+      return { error: em ? em[1] : "Error desconocido", raw: text.slice(0, 1000) };
+    }
+    xmlData = text;
+    break;
+  }
+
+  if (!xmlData) {
+    return { error: `IBKR no generó el informe (query ${queryId}) tras ${MAX_ATTEMPTS} intentos.`, raw: lastRaw.slice(0, 500) };
+  }
+
+  return { xml: xmlData };
+}
+
+function parseTags(xmlData, tagName) {
+  const items = [];
+  const regex = new RegExp(`<${tagName}\\b([^>]*?)\\/?>`, "g");
+  let match;
+  while ((match = regex.exec(xmlData)) !== null) {
+    const attrs = {};
+    const attrRegex = /(\w+)="([^"]*)"/g;
+    let attr;
+    while ((attr = attrRegex.exec(match[1])) !== null) {
+      let val = attr[2]
+        .replace(/&amp;/g, "&")
+        .replace(/&lt;/g, "<")
+        .replace(/&gt;/g, ">")
+        .replace(/&quot;/g, '"')
+        .replace(/&apos;/g, "'");
+      attrs[attr[1]] = val;
+    }
+    items.push(attrs);
+  }
+  return items;
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -13,6 +80,7 @@ exports.handler = async (event) => {
 
   const TOKEN = process.env.IBKR_FLEX_TOKEN;
   const QUERY_ID = process.env.IBKR_QUERY_ID || "1541787";
+  const OPTIONS_QUERY_ID = process.env.IBKR_OPTIONS_QUERY_ID || "1495741";
 
   if (!TOKEN) {
     return {
@@ -23,76 +91,33 @@ exports.handler = async (event) => {
   }
 
   try {
-    const reqUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${TOKEN}&q=${QUERY_ID}&v=3`;
-    const reqRes = await fetch(reqUrl);
-    const reqText = await reqRes.text();
+    // Fetch both reports in parallel
+    const [posReport, optReport] = await Promise.all([
+      fetchFlexReport(TOKEN, QUERY_ID),
+      fetchFlexReport(TOKEN, OPTIONS_QUERY_ID)
+    ]);
 
-    const refMatch = reqText.match(/<ReferenceCode>(.*?)<\/ReferenceCode>/);
-    const errMatch = reqText.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
-
-    if (!refMatch) {
+    if (posReport.error) {
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: errMatch ? errMatch[1] : "Sin código de referencia", step: 1, raw: reqText.slice(0, 1500) })
-      };
-    }
-    const refCode = refMatch[1];
-
-    let xmlData = null;
-    let lastRaw = "";
-    let attempts = 0;
-    const MAX_ATTEMPTS = 10;
-    while (attempts < MAX_ATTEMPTS) {
-      await new Promise(r => setTimeout(r, 3000));
-      const getUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.GetStatement?q=${refCode}&t=${TOKEN}&v=3`;
-      const getRes = await fetch(getUrl);
-      const text = await getRes.text();
-      lastRaw = text;
-
-      if (text.includes("<ErrorMessage>")) {
-        const em = text.match(/<ErrorMessage>(.*?)<\/ErrorMessage>/);
-        // Retry on transient errors (1001 "could not be generated", "not yet available", etc.)
-        if (em && /not yet available|generation in progress|try again|could not be generated/i.test(em[1])) {
-          attempts++;
-          continue;
-        }
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-          body: JSON.stringify({ error: em ? em[1] : "Error desconocido", step: 2, raw: text.slice(0, 1500) })
-        };
-      }
-      xmlData = text;
-      break;
-    }
-
-    if (!xmlData) {
-      return {
-        statusCode: 200,
-        headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-        body: JSON.stringify({ error: `IBKR no generó el informe tras ${MAX_ATTEMPTS} intentos (~${MAX_ATTEMPTS*3}s). Esto es un fallo temporal de los servidores de IBKR, no de la app. Pulsa Actualizar de nuevo en unos minutos.`, step: 3, raw: lastRaw.slice(0, 800) })
+        body: JSON.stringify({ error: posReport.error, raw: posReport.raw })
       };
     }
 
-    // Parse OpenPosition elements (confirmed field names from real IBKR export)
-    const positions = [];
-    const posRegex = /<OpenPosition\b([^>]*?)\/?>/g;
-    let match;
-    while ((match = posRegex.exec(xmlData)) !== null) {
-      const attrs = {};
-      const attrRegex = /(\w+)="([^"]*)"/g;
-      let attr;
-      while ((attr = attrRegex.exec(match[1])) !== null) {
-        let val = attr[2]
-          .replace(/&amp;/g, "&")
-          .replace(/&lt;/g, "<")
-          .replace(/&gt;/g, ">")
-          .replace(/&quot;/g, '"')
-          .replace(/&apos;/g, "'");
-        attrs[attr[1]] = val;
-      }
-      if (attrs.symbol) positions.push(attrs);
+    const positions = parseTags(posReport.xml, "OpenPosition").filter(p => p.symbol);
+
+    let dividends = [];
+    let optionPositions = [];
+    let optionsError = null;
+
+    if (optReport.xml) {
+      const cashTx = parseTags(optReport.xml, "CashTransaction");
+      dividends = cashTx.filter(t => t.type === "Dividends");
+      const optPositions = parseTags(optReport.xml, "OpenPosition");
+      optionPositions = optPositions.filter(p => p.assetCategory === "OPT" || (p.putCall && p.putCall !== ""));
+    } else {
+      optionsError = optReport.error;
     }
 
     return {
@@ -104,9 +129,12 @@ exports.handler = async (event) => {
       },
       body: JSON.stringify({
         positions,
+        dividends,
+        optionPositions,
+        optionsError,
         count: positions.length,
         fetchedAt: new Date().toISOString(),
-        debug: positions.length === 0 ? xmlData.slice(0, 2000) : undefined
+        debug: positions.length === 0 ? posReport.xml.slice(0, 2000) : undefined
       })
     };
 
