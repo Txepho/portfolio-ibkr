@@ -6,6 +6,18 @@ const { getStore } = require("@netlify/blobs");
 const CACHE_KEY = "portfolio-cache";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
+function getCacheStore() {
+  // Explicit credentials needed because automatic context injection
+  // is not always available depending on deploy/build setup.
+  const siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
+  const token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
+  if (siteID && token) {
+    return getStore({ name: "portfolio-data", siteID, token });
+  }
+  // Fallback to automatic context (works in some deploy contexts)
+  return getStore("portfolio-data");
+}
+
 async function fetchFlexReport(token, queryId) {
   const reqUrl = `https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService.SendRequest?t=${token}&q=${queryId}&v=3`;
   const reqRes = await fetch(reqUrl);
@@ -97,10 +109,16 @@ exports.handler = async (event) => {
     };
   }
 
-  const store = getStore("portfolio-data");
+  let store = null;
+  let blobsAvailable = true;
+  try {
+    store = getCacheStore();
+  } catch (e) {
+    blobsAvailable = false;
+  }
 
   // ── Try cache first ──
-  if (!forceRefresh) {
+  if (blobsAvailable && !forceRefresh) {
     try {
       const cached = await store.get(CACHE_KEY, { type: "json" });
       if (cached && cached.fetchedAt) {
@@ -114,7 +132,7 @@ exports.handler = async (event) => {
         }
       }
     } catch (e) {
-      // Cache miss or error reading cache - continue to fetch fresh data
+      // Cache miss, error reading cache, or blobs not available - continue to fetch fresh data
     }
   }
 
@@ -127,16 +145,18 @@ exports.handler = async (event) => {
 
     if (posReport.error) {
       // If we have stale cache, serve it instead of failing completely
-      try {
-        const stale = await store.get(CACHE_KEY, { type: "json" });
-        if (stale && stale.fetchedAt) {
-          return {
-            statusCode: 200,
-            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-            body: JSON.stringify({ ...stale, cached: true, stale: true, staleError: posReport.error })
-          };
-        }
-      } catch (e) {}
+      if (blobsAvailable) {
+        try {
+          const stale = await store.get(CACHE_KEY, { type: "json" });
+          if (stale && stale.fetchedAt) {
+            return {
+              statusCode: 200,
+              headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+              body: JSON.stringify({ ...stale, cached: true, stale: true, staleError: posReport.error })
+            };
+          }
+        } catch (e) {}
+      }
 
       return {
         statusCode: 200,
@@ -170,9 +190,11 @@ exports.handler = async (event) => {
     };
 
     // Save to cache (best-effort, don't fail the response if this fails)
-    try {
-      await store.setJSON(CACHE_KEY, result);
-    } catch (e) {}
+    if (blobsAvailable) {
+      try {
+        await store.setJSON(CACHE_KEY, result);
+      } catch (e) {}
+    }
 
     return {
       statusCode: 200,
@@ -184,22 +206,25 @@ exports.handler = async (event) => {
       body: JSON.stringify({
         ...result,
         cached: false,
+        blobsAvailable,
         debug: positions.length === 0 ? posReport.xml.slice(0, 2000) : undefined
       })
     };
 
   } catch (err) {
     // Try to serve stale cache on unexpected errors too
-    try {
-      const stale = await store.get(CACHE_KEY, { type: "json" });
-      if (stale && stale.fetchedAt) {
-        return {
-          statusCode: 200,
-          headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
-          body: JSON.stringify({ ...stale, cached: true, stale: true, staleError: err.message })
-        };
-      }
-    } catch (e) {}
+    if (blobsAvailable) {
+      try {
+        const stale = await store.get(CACHE_KEY, { type: "json" });
+        if (stale && stale.fetchedAt) {
+          return {
+            statusCode: 200,
+            headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
+            body: JSON.stringify({ ...stale, cached: true, stale: true, staleError: err.message })
+          };
+        }
+      } catch (e) {}
+    }
 
     return {
       statusCode: 200,
