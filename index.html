@@ -131,6 +131,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
       </div>
     </div>
     <div class="header-right">
+      <button class="btn-sm" id="currBtn" onclick="toggleCurrency()" title="Cambiar divisa" style="font-family:var(--mono);font-size:11px;font-weight:700;min-width:48px">USD</button>
       <button class="btn-icon" id="privacyBtn" onclick="togglePrivacy()" title="Ocultar importes">👁️</button>
       <button class="btn-icon" id="themeBtn" onclick="toggleTheme()" title="Cambiar tema">🌙</button>
       <button class="btn-sm" id="btnr" onclick="loadData(false)">⟳ Actualizar</button>
@@ -193,6 +194,23 @@ function applyPrivacyBtn(){
   document.getElementById("privacyBtn").textContent=privacyMode?"🙈":"👁️";
   document.getElementById("privacyBtn").title=privacyMode?"Mostrar importes":"Ocultar importes";
 }
+// ── CURRENCY TOGGLE ──
+let currencyMode=localStorage.getItem("currencyMode")||"USD";
+const EUR_RATE=()=>window._eurRate||0.92;
+function applyCurrBtn(){
+  const btn=document.getElementById("currBtn");
+  if(btn){btn.textContent=currencyMode;btn.style.color=currencyMode==="EUR"?"var(--amber)":"var(--a1)";}
+}
+function toggleCurrency(){
+  currencyMode=currencyMode==="USD"?"EUR":"USD";
+  localStorage.setItem("currencyMode",currencyMode);
+  applyCurrBtn();
+  Object.values(charts).forEach(c=>c&&c.destroy());
+  charts={};
+  if(st.positions)renderMain(st.tab);
+}
+applyCurrBtn();
+
 function togglePrivacy(){
   privacyMode=!privacyMode;
   localStorage.setItem("privacyMode",privacyMode?"1":"0");
@@ -245,6 +263,7 @@ async function loadData(force){
     st.optionPositions=data.optionPositions||[];
     st.optionsError=data.optionsError;
     st.navHistory=data.navHistory||[];
+    if(data.usdToEur)window._eurRate=data.usdToEur;
     st.fetchedAt=data.fetchedAt;
 
     const fechaTxt=new Date(data.fetchedAt).toLocaleString("es-ES");
@@ -265,7 +284,14 @@ async function loadData(force){
 // ── FORMATTERS ──
 const fmt=(n,d=0)=>n==null||isNaN(n)?"—":Number(n).toLocaleString("es-ES",{minimumFractionDigits:d,maximumFractionDigits:d});
 const fmtD=(n)=>n==null||isNaN(n)?"—":`${n>=0?"+":""}${Number(n).toFixed(2)}%`;
-const fmtC=(n,cur="$")=>n==null||isNaN(n)?"—":privacyMode?`${cur}••••`:`${cur}${fmt(n,0)}`;
+function fmtC(n,forceCur){
+  if(n==null||isNaN(n))return"—";
+  if(privacyMode)return(forceCur||(currencyMode==="EUR"?"€":"$"))+"••••";
+  const useEur=currencyMode==="EUR";
+  const val=useEur?n*EUR_RATE():n;
+  const sym=forceCur||(useEur?"€":"$");
+  return sym+fmt(val,0);
+}
 const clr=(n)=>n>=0?"var(--green)":"var(--red)";
 const cv=(n,cur="$")=>`<span style="color:${clr(n)}">${fmtC(n,cur)}</span>`;
 const sc=(l,v,s,c)=>`<div class="stat-card"><div class="stat-label">${l}</div><div class="stat-value" style="color:${c}">${v}</div>${s?`<div class="stat-sub">${s}</div>`:""}</div>`;
@@ -503,13 +529,13 @@ function renderMain(tab){
       charts.divMonthly=new Chart(document.getElementById("chartDivMonthly"),{
         type:"bar",
         data:{labels:monthly.map(m=>m.label),datasets:[{label:"Dividendos (USD)",data:monthly.map(m=>+m.total.toFixed(0)),backgroundColor:"#10b981",borderRadius:6}]},
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":"$"+fmt(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick,maxRotation:45,minRotation:45}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":"$"+v}}}}
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":fmtC(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick,maxRotation:45,minRotation:45}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":fmtC(v)}}}}
       });
       // By ticker chart
       charts.divByTicker=new Chart(document.getElementById("chartDivByTicker"),{
         type:"bar",
         data:{labels:dvs.map(p=>p.ticker),datasets:[{label:"Dividendo anual (USD)",data:dvs.map(p=>+p.annDiv.toFixed(0)),backgroundColor:dvs.map((_,i)=>CL[i%CL.length]),borderRadius:6}]},
-        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":"$"+fmt(c.parsed.y)+"/año"}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":"$"+v}}}}
+        options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":fmtC(c.parsed.y)+"/año"}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":fmtC(v)}}}}
       });
     },0);
   }
