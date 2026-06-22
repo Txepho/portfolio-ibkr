@@ -187,12 +187,17 @@ exports.handler = async (event) => {
       optionsError = optReport.error;
     }
 
+    // Extract USD→EUR FX rate from positions (fxRateToBase for USD positions)
+    const usdPos = positions.find(p => p.currency === "USD" && p.fxRateToBase);
+    const usdToEur = usdPos ? parseFloat(usdPos.fxRateToBase) : 0.92;
+
     const result = {
       positions,
       dividends,
       optionPositions,
       optionsError,
       navHistory,
+      usdToEur,
       count: positions.length,
       fetchedAt: new Date().toISOString()
     };
