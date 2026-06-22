@@ -153,11 +153,22 @@ const LM={ABBV:"abbvie.com",AMZN:"amazon.com",ASTS:"ast-science.com",BAM:"brookf
 const DIV_FALLBACK={ABBV:6.56,ENB:3.77,JEPI:6.80,JEPQ:6.20,MAIN:3.00,MCD:7.08,NEE:2.31,PAYX:3.92,VICI:1.72,BN:0.28,BAM:1.50,V:0.90,MA:2.64,MSFT:3.32,UNH:8.40,ZTS:1.60,SPGI:4.32,"700":3.40,ASML:6.40,IBE:0.62,BATS:2.40,WKL:1.65};
 
 const CL=["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#06b6d4","#a78bfa","#34d399","#fbbf24","#f87171","#0ea5e9","#c4b5fd","#4ade80","#facc15","#fb923c"];
+
+const SECTOR_MAP={
+  ABBV:"Salud",AMZN:"Tecnología",ASTS:"Telecom",BAM:"Financiero",
+  BITO:"Cripto ETF",BKNG:"Consumo Discrecional",BN:"Financiero",
+  ENB:"Energía",JEPI:"ETF Ingresos",JEPQ:"ETF Ingresos",MA:"Financiero",
+  MAIN:"BDC",MCD:"Consumo Estable",MSFT:"Tecnología",NEE:"Utilities",
+  ONDS:"Tecnología",PAYX:"Servicios Empresariales",SPGI:"Datos Financieros",
+  UNH:"Salud",V:"Financiero",VICI:"REIT",ZTS:"Salud Animal",
+  "700":"Tecnología HK",ASML:"Tecnología",IBE:"Utilities",
+  BATS:"Consumo Estable",WKL:"Datos Empresariales",RMS:"Lujo",BIP:"Infraestructura"
+};
 const CCY_NAMES={USD:"Dólar EE.UU.",EUR:"Euro",HKD:"Dólar Hong Kong",GBP:"Libra esterlina"};
 const CCY_FLAG={USD:"🇺🇸",EUR:"🇪🇺",HKD:"🇭🇰",GBP:"🇬🇧"};
 const MESES=["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
 
-let st={positions:null,dividends:[],optionPositions:[],optionsError:null,tab:"overview",fetchedAt:null};
+let st={positions:null,dividends:[],optionPositions:[],optionsError:null,navHistory:[],tab:"overview",fetchedAt:null};
 let charts={};
 let divTarget=parseFloat(localStorage.getItem("divTarget"))||500;
 
@@ -233,6 +244,7 @@ async function loadData(force){
     st.dividends=data.dividends||[];
     st.optionPositions=data.optionPositions||[];
     st.optionsError=data.optionsError;
+    st.navHistory=data.navHistory||[];
     st.fetchedAt=data.fetchedAt;
 
     const fechaTxt=new Date(data.fetchedAt).toLocaleString("es-ES");
@@ -368,7 +380,7 @@ function yearlyDividendSeries(dividends){
 }
 
 // ── TABS ──
-const TABS=[{id:"overview",l:"Resumen"},{id:"posiciones",l:"Posiciones"},{id:"heatmap",l:"Heatmap"},{id:"dividendos",l:"Dividendos"},{id:"ranking",l:"Ranking"},{id:"divisas",l:"Divisas"},{id:"opciones",l:"Opciones"}];
+const TABS=[{id:"overview",l:"Resumen"},{id:"rendimiento",l:"Rendimiento"},{id:"posiciones",l:"Posiciones"},{id:"heatmap",l:"Heatmap"},{id:"sectores",l:"Sectores"},{id:"dividendos",l:"Dividendos"},{id:"calendario",l:"Calendario"},{id:"ranking",l:"Ranking"},{id:"divisas",l:"Divisas"},{id:"opciones",l:"Opciones"}];
 function renderTabs(){document.getElementById("tabsbar").innerHTML=TABS.map(t=>`<button class="tab${st.tab===t.id?" active":""}" onclick="sw('${t.id}')">${t.l}</button>`).join("");}
 function sw(id){st.tab=id;renderTabs();renderMain(id);}
 
@@ -611,6 +623,140 @@ function renderMain(tab){
         </div>
       </div>`;
     }).join("")}`;
+  }
+
+  else if(tab==="rendimiento"){
+    const nav=st.navHistory||[];
+    if(nav.length<2){
+      el.innerHTML=`<div class="warn-box">Sin datos de rendimiento histórico. Los datos NAV diarios aparecerán tras la próxima actualización desde IBKR.</div>`;
+      return;
+    }
+    const base=nav[0].nav;
+    const current=nav[nav.length-1].nav;
+    const totalRet=((current-base)/base)*100;
+    const ytd=nav.filter(n=>n.date.startsWith(new Date().getFullYear().toString()));
+    const ytdRet=ytd.length>1?((ytd[ytd.length-1].nav-ytd[0].nav)/ytd[0].nav)*100:0;
+    const labels=nav.map(n=>n.date.replace(/(\d{4})(\d{2})(\d{2})/,"$3/$2"));
+    const dataPoints=nav.map(n=>+((((n.nav-base)/base)*100).toFixed(2)));
+    const cc=chartColors();
+    el.innerHTML=`
+    <div class="stats-grid" style="margin-bottom:16px">
+      ${sc("Rendimiento Total","<span style='color:"+clr(totalRet)+"'>"+fmtD(totalRet)+"</span>","Desde "+nav[0].date.replace(/(\d{4})(\d{2})(\d{2})/,"$3/$2/$1"),"var(--a1)")}
+      ${sc("YTD","<span style='color:"+clr(ytdRet)+"'>"+fmtD(ytdRet)+"</span>",""+new Date().getFullYear(),"var(--amber)")}
+      ${sc("NAV Actual",fmtC(current,"€"),"Valor cuenta en EUR","var(--green)")}
+      ${sc("NAV Inicio",fmtC(base,"€"),"Inicio del período","var(--muted)")}
+    </div>
+    <div class="card">
+      <div class="card-title">Curva de rendimiento (% desde inicio del período)</div>
+      <div class="chart-wrap tall"><canvas id="chartNAV"></canvas></div>
+    </div>`;
+    setTimeout(()=>{
+      charts.nav=new Chart(document.getElementById("chartNAV"),{
+        type:"line",
+        data:{labels,datasets:[{
+          label:"Rendimiento %",data:dataPoints,
+          borderColor:"#10b981",backgroundColor:"rgba(16,185,129,.1)",
+          borderWidth:2,pointRadius:0,pointHoverRadius:4,fill:true,tension:.3
+        }]},
+        options:{responsive:true,maintainAspectRatio:false,interaction:{mode:"index",intersect:false},
+          plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,
+            callbacks:{label:c=>c.parsed.y.toFixed(2)+"%",title:t=>t[0].label}}},
+          scales:{
+            x:{grid:{display:false},ticks:{color:cc.tick,maxTicksLimit:12,maxRotation:0}},
+            y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>v+"%"},
+               afterDataLimits:a=>{a.min=Math.min(...dataPoints)-2;a.max=Math.max(...dataPoints)+2;}}
+          }}
+      });
+    },0);
+  }
+
+  else if(tab==="sectores"){
+    const sectors={};
+    en.forEach(p=>{
+      const sec=SECTOR_MAP[p.ticker]||"Otros";
+      if(!sectors[sec])sectors[sec]={val:0,tickers:[]};
+      sectors[sec].val+=p.usd;
+      sectors[sec].tickers.push(p);
+    });
+    const secArr=Object.entries(sectors).sort((a,b)=>b[1].val-a[1].val);
+    const cc=chartColors();
+    el.innerHTML=`
+    <div class="two-col" style="margin-bottom:14px">
+      <div class="card">
+        <div class="card-title">Distribución por sector</div>
+        <div class="chart-wrap"><canvas id="chartSector"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-title">Peso por sector</div>
+        ${secArr.map(([sec,d],i)=>`
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+            <div style="width:10px;height:10px;border-radius:50%;background:${CL[i%CL.length]};flex-shrink:0"></div>
+            <span style="font-size:12px;flex:1">${sec}</span>
+            <div class="pb"><div style="height:100%;border-radius:4px;width:${(d.val/tot)*100}%;background:${CL[i%CL.length]}"></div></div>
+            <span style="font-size:11px;color:var(--muted);font-family:var(--mono);width:40px;text-align:right">${fmt((d.val/tot)*100,1)}%</span>
+          </div>`).join("")}
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Posiciones por sector</div>
+      ${secArr.map(([sec,d],i)=>`
+        <div style="margin-bottom:14px">
+          <div style="font-size:10px;color:${CL[i%CL.length]};font-family:var(--mono);text-transform:uppercase;margin-bottom:6px;font-weight:700">${sec} · ${fmt((d.val/tot)*100,1)}%</div>
+          <div style="display:flex;flex-wrap:wrap;gap:6px">
+            ${d.tickers.map(p=>`<div style="background:var(--s2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;display:flex;align-items:center;gap:6px">
+              ${lg(p.ticker,18)}
+              <span style="font-size:11px;font-family:var(--mono);font-weight:700">${p.ticker}</span>
+              <span style="font-size:10px;color:${clr(p.pct)}">${fmtD(p.pct)}</span>
+            </div>`).join("")}
+          </div>
+        </div>`).join("")}
+    </div>`;
+    setTimeout(()=>{
+      charts.sector=new Chart(document.getElementById("chartSector"),{
+        type:"doughnut",
+        data:{labels:secArr.map(s=>s[0]),datasets:[{data:secArr.map(s=>+s[1].val.toFixed(0)),
+          backgroundColor:CL.slice(0,secArr.length),borderWidth:2,borderColor:"var(--bg)"}]},
+        options:{responsive:true,maintainAspectRatio:false,cutout:"60%",
+          plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,
+            callbacks:{label:c=>`${c.label}: ${((c.parsed/secArr.reduce((a,s)=>a+s[1].val,0))*100).toFixed(1)}%`}}}}
+      });
+    },0);
+  }
+
+  else if(tab==="calendario"){
+    const divs=st.dividends||[];
+    if(divs.length===0){
+      el.innerHTML=`<div class="warn-box">Sin datos de dividendos reales. Actualiza los datos desde IBKR.</div>`;
+      return;
+    }
+    // Group by month
+    const byMonth={};
+    divs.forEach(d=>{
+      const ds=(d.dateTime||"").split(";")[0];
+      if(ds.length<8)return;
+      const y=ds.slice(0,4),m=ds.slice(4,6);
+      const key=y+"-"+m;
+      if(!byMonth[key])byMonth[key]={label:MESES[+m-1]+" "+y,items:[]};
+      const fx=FX_TO_USD[d.currency]||1;
+      byMonth[key].items.push({sym:d.symbol,amt:(parseFloat(d.amount)||0)*fx,cur:d.currency,date:ds});
+    });
+    const months=Object.entries(byMonth).sort((a,b)=>b[0].localeCompare(a[0]));
+    el.innerHTML=`
+    <div class="stats-grid" style="margin-bottom:16px">
+      ${sc("Total transacciones",divs.length,"Dividendos recibidos","var(--a1)")}
+      ${sc("Empresas pagadoras",[...new Set(divs.map(d=>d.symbol))].length,"","#a78bfa")}
+    </div>
+    ${months.map(([key,m])=>`
+      <div class="card">
+        <div class="card-title">${m.label} · ${fmtC(m.items.reduce((s,i)=>s+i.amt,0))}</div>
+        ${m.items.sort((a,b)=>b.amt-a.amt).map(item=>`
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+            ${lg(item.sym,22)}
+            <span style="font-size:12px;font-weight:700;font-family:var(--mono);flex:1">${item.sym}</span>
+            <span style="font-size:11px;color:var(--muted)">${item.date.replace(/(\d{4})(\d{2})(\d{2})/,"$3/$2/$1")}</span>
+            <span style="font-size:12px;font-weight:700;font-family:var(--mono);color:#a78bfa">${fmtC(item.amt)}</span>
+          </div>`).join("")}
+      </div>`).join("")}`;
   }
 }
 
