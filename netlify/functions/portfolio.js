@@ -171,11 +171,18 @@ exports.handler = async (event) => {
     let optionPositions = [];
     let optionsError = null;
 
+    let navHistory = [];
     if (optReport.xml) {
       const cashTx = parseTags(optReport.xml, "CashTransaction");
       dividends = cashTx.filter(t => t.type === "Dividends");
       const optPositions = parseTags(optReport.xml, "OpenPosition");
       optionPositions = optPositions.filter(p => p.assetCategory === "OPT" || (p.putCall && p.putCall !== ""));
+      // NAV daily history for return curve
+      const equity = parseTags(optReport.xml, "EquitySummaryByReportDateInBase");
+      navHistory = equity
+        .filter(e => e.reportDate && e.total)
+        .map(e => ({ date: e.reportDate, nav: parseFloat(e.total) }))
+        .sort((a, b) => a.date.localeCompare(b.date));
     } else {
       optionsError = optReport.error;
     }
@@ -185,6 +192,7 @@ exports.handler = async (event) => {
       dividends,
       optionPositions,
       optionsError,
+      navHistory,
       count: positions.length,
       fetchedAt: new Date().toISOString()
     };
