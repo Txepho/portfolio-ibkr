@@ -138,10 +138,10 @@ exports.handler = async (event) => {
 
   // ── Fetch fresh data from IBKR ──
   try {
-    const [posReport, optReport] = await Promise.all([
-      fetchFlexReport(TOKEN, QUERY_ID),
-      fetchFlexReport(TOKEN, OPTIONS_QUERY_ID)
-    ]);
+    // IMPORTANT: IBKR seems to reject/fail concurrent SendRequest calls using the
+    // same token (ErrorCode 1001). Fetch sequentially, not with Promise.all.
+    const posReport = await fetchFlexReport(TOKEN, QUERY_ID);
+    const optReport = await fetchFlexReport(TOKEN, OPTIONS_QUERY_ID);
 
     if (posReport.error) {
       // If we have stale cache, serve it instead of failing completely
