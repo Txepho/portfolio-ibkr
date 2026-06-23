@@ -87,7 +87,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--sans);min-height:1
 @media(max-width:640px){.two-col{grid-template-columns:1fr;}}
 .card{background:var(--s1);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;}
 .card-title{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:14px;font-family:var(--mono);}
-.heatmap{display:flex;flex-wrap:wrap;gap:14px;}
+.heatmap{display:flex;flex-wrap:wrap;gap:14px;justify-content:center;}
 .hc{border-radius:14px;padding:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;transition:transform .2s;border:1px solid transparent;cursor:default;}
 .hc:hover{transform:scale(1.05);}
 .pb{background:var(--border);border-radius:4px;height:5px;overflow:hidden;flex:1;}
@@ -150,7 +150,6 @@ const PWD="Ibkr#J0s3$2026!";
 
 const LM={ABBV:"abbvie.com",AMZN:"amazon.com",ASTS:"ast-science.com",BAM:"brookfield.com",BITO:"proshares.com",BKNG:"booking.com",BN:"brookfield.com",ENB:"enbridge.com",JEPI:"jpmorgan.com",JEPQ:"jpmorgan.com",MA:"mastercard.com",MAIN:"mainstcapital.com",MCD:"mcdonalds.com",MSFT:"microsoft.com",NEE:"nexteraenergy.com",ONDS:"ondas.com",PAYX:"paychex.com",SPGI:"spglobal.com",UNH:"unitedhealthgroup.com",V:"visa.com",VICI:"viciproperties.com",ZTS:"zoetis.com","700":"tencent.com",ASML:"asml.com",IBE:"iberdrola.com",BATS:"bat.com",WKL:"wolterskluwer.com",RMS:"hermes.com",BIP:"brookfield.com"};
 
-// Fallback estimated annual dividend (used only if no real dividend history found)
 const DIV_FALLBACK={ABBV:6.56,ENB:3.77,JEPI:6.80,JEPQ:6.20,MAIN:3.00,MCD:7.08,NEE:2.31,PAYX:3.92,VICI:1.72,BN:0.28,BAM:1.50,V:0.90,MA:2.64,MSFT:3.32,UNH:8.40,ZTS:1.60,SPGI:4.32,"700":3.40,ASML:6.40,IBE:0.62,BATS:2.40,WKL:1.65};
 
 const CL=["#3b82f6","#8b5cf6","#10b981","#f59e0b","#ef4444","#06b6d4","#a78bfa","#34d399","#fbbf24","#f87171","#0ea5e9","#c4b5fd","#4ade80","#facc15","#fb923c"];
@@ -188,7 +187,7 @@ function toggleTheme(){
 }
 applyTheme(localStorage.getItem("theme")||"dark");
 
-// ── PRIVACY MODE (hide amounts for screenshots) ──
+// ── PRIVACY MODE ──
 let privacyMode=localStorage.getItem("privacyMode")==="1";
 function applyPrivacyBtn(){
   document.getElementById("privacyBtn").textContent=privacyMode?"🙈":"👁️";
@@ -316,7 +315,6 @@ function enrich(positions,dividends){
     return a+(parseFloat(p.positionValue)||0)*fx;
   },0);
 
-  // Real dividends received per symbol over last 12 months -> annualized
   const now=new Date();
   const oneYearAgo=new Date(now.getTime()-365*24*3600*1000);
   const divBySymbol={};
@@ -371,7 +369,6 @@ function enrich(positions,dividends){
 }
 
 function monthlyDividendSeries(dividends){
-  // Build last-12-months series in USD
   const now=new Date();
   const months=[];
   for(let i=11;i>=0;i--){
@@ -414,6 +411,24 @@ function setDivTarget(v){
   divTarget=parseFloat(v)||0;
   localStorage.setItem("divTarget",divTarget);
   renderMain("dividendos");
+}
+
+// ── HELPER: renderizar chart cuando el canvas tiene dimensiones reales ──
+// FIX Rendimiento: evita race condition entre innerHTML y Chart.js
+function renderWhenReady(canvasId, renderFn, maxTries=20){
+  let tries=0;
+  function attempt(){
+    const canvas=document.getElementById(canvasId);
+    if(!canvas){return;}
+    // El canvas debe tener dimensiones reales (su contenedor debe estar pintado)
+    const rect=canvas.getBoundingClientRect();
+    if(rect.width>0 && rect.height>0){
+      renderFn(canvas);
+    } else if(tries++<maxTries){
+      requestAnimationFrame(attempt);
+    }
+  }
+  requestAnimationFrame(attempt);
 }
 
 // ── MAIN RENDER ──
@@ -460,20 +475,33 @@ function renderMain(tab){
     el.innerHTML=`<div class="pos-list">${en.map(p=>`<div class="pos-row">${lg(p.ticker,30)}<div class="pos-name"><div class="pos-ticker">${p.ticker}</div><div class="pos-sector">${p.currency} · ${p.assetCategory}</div></div><div class="pos-meta"><div class="pf"><div class="pf-l">Cantidad</div><div class="pf-v">${fmt(p.qty,p.qty%1!==0?2:0)}</div></div><div class="pf"><div class="pf-l">Precio</div><div class="pf-v">${privacyMode?"••••":fmt(p.markPrice,2)}</div></div><div class="pf"><div class="pf-l">Coste</div><div class="pf-v">${privacyMode?"••••":fmt(p.costBasisPrice,2)}</div></div><div class="pf"><div class="pf-l">Valor</div><div class="pf-v">${fmtC(p.usd)}</div></div><div class="pf"><div class="pf-l">P&L</div><div class="pf-v" style="color:${clr(p.unrealPnl)}">${fmtC(p.unrealPnl)}</div></div><div class="pf"><div class="pf-l">%</div><div class="pf-v" style="color:${clr(p.pct)}">${fmtD(p.pct)}</div></div><div class="pf"><div class="pf-l">Peso</div><div class="pf-v" style="color:var(--a1)">${fmt(p.w,1)}%</div></div></div></div>`).join("")}</div>`;
   }
 
+  // ── FIX HEATMAP MOBILE ──
+  // El tamaño de cada bloque se limita al ancho del contenedor dividido por
+  // el número de columnas que caben, evitando overflow en pantallas pequeñas.
   else if(tab==="heatmap"){
-    el.innerHTML=`<p style="font-size:13px;color:var(--muted);margin-bottom:18px">Tamaño = peso en cartera · Color = rentabilidad</p><div class="heatmap">${en.map(p=>{
+    el.innerHTML=`<p style="font-size:13px;color:var(--muted);margin-bottom:18px">Tamaño = peso en cartera · Color = rentabilidad</p><div class="heatmap" id="heatmapGrid"></div>`;
+    // Calcular max celda según ancho disponible
+    const containerW=el.clientWidth||window.innerWidth;
+    const gap=14;
+    const maxCellFromContainer=Math.floor((containerW-gap)/2)-gap; // mínimo 2 col
+    const isDark=document.documentElement.getAttribute("data-theme")!=="light";
+    const grid=document.getElementById("heatmapGrid");
+    grid.innerHTML=en.map(p=>{
       const it=Math.min(Math.abs(p.pct)/15,1);
       const bg=p.pct>=0?`rgba(16,185,129,${0.15+it*0.55})`:`rgba(239,68,68,${0.15+it*0.55})`;
       const bo=p.pct>=0?"rgba(16,185,129,.45)":"rgba(239,68,68,.45)";
-      const sz=Math.max(140,Math.min(340,p.w*22));
-      const logoSz=Math.max(32,Math.min(72,sz*.22));
+      // Tamaño: peso * 22, pero nunca mayor que lo que cabe en pantalla
+      const szRaw=Math.max(100,p.w*22);
+      const sz=Math.min(szRaw,maxCellFromContainer,320);
+      const logoSz=Math.max(28,Math.min(64,sz*.22));
+      const mutedColor=isDark?"rgba(255,255,255,.55)":"rgba(0,0,0,.55)";
       return `<div class="hc" style="background:${bg};border-color:${bo};width:${sz}px;height:${sz}px">
         ${lg(p.ticker,logoSz)}
-        <div style="font-size:${Math.max(14,sz*.085)}px;font-weight:700;font-family:var(--mono)">${p.ticker}</div>
-        <div style="font-size:${Math.max(12,sz*.065)}px;font-weight:600;font-family:var(--mono);color:${clr(p.pct)}">${fmtD(p.pct)}</div>
-        <div style="font-size:${Math.max(10,sz*.05)}px;color:${document.documentElement.getAttribute('data-theme')==='light'?'rgba(0,0,0,.55)':'rgba(255,255,255,.55)'};font-family:var(--mono)">${fmt(p.w,1)}% · ${fmtC(p.usd)}</div>
+        <div style="font-size:${Math.max(11,sz*.085)}px;font-weight:700;font-family:var(--mono)">${p.ticker}</div>
+        <div style="font-size:${Math.max(10,sz*.065)}px;font-weight:600;font-family:var(--mono);color:${clr(p.pct)}">${fmtD(p.pct)}</div>
+        <div style="font-size:${Math.max(9,sz*.05)}px;color:${mutedColor};font-family:var(--mono);text-align:center">${fmt(p.w,1)}% · ${fmtC(p.usd)}</div>
       </div>`;
-    }).join("")}</div>`;
+    }).join("");
   }
 
   else if(tab==="dividendos"){
@@ -516,28 +544,29 @@ function renderMain(tab){
     </div>
     ${dvs.map(p=>`<div class="div-row">${lg(p.ticker,26)}<div style="flex:1"><div style="font-size:13px;font-weight:700;font-family:var(--mono)">${p.ticker}</div><div style="font-size:10px;color:var(--muted)">${fmt(p.qty,p.qty%1!==0?2:0)} acciones · ${p.divSource==='real'?'📊 dato real':'~ estimado'}</div></div><div style="text-align:right"><div style="font-size:12px;font-weight:700;font-family:var(--mono);color:#a78bfa">${fmtC(p.annDiv)}/año</div><div style="font-size:10px;color:var(--green)">Yield: ${fmt(p.curYield,2)}% · YOC: ${fmt(p.yoc,2)}%</div></div></div>`).join("")}`;
 
-    setTimeout(()=>{
-      // Yearly chart
-      if(yearly.length>0){
-        charts.divYearly=new Chart(document.getElementById("chartDivYearly"),{
+    if(yearly.length>0){
+      renderWhenReady("chartDivYearly", canvas=>{
+        charts.divYearly=new Chart(canvas,{
           type:"bar",
           data:{labels:yearly.map(y=>y[0]),datasets:[{label:"Dividendos (USD)",data:yearly.map(y=>+y[1].toFixed(0)),backgroundColor:"#a78bfa",borderRadius:6}]},
           options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":"$"+fmt(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":"$"+v}}}}
         });
-      }
-      // Monthly chart
-      charts.divMonthly=new Chart(document.getElementById("chartDivMonthly"),{
+      });
+    }
+    renderWhenReady("chartDivMonthly", canvas=>{
+      charts.divMonthly=new Chart(canvas,{
         type:"bar",
         data:{labels:monthly.map(m=>m.label),datasets:[{label:"Dividendos (USD)",data:monthly.map(m=>+m.total.toFixed(0)),backgroundColor:"#10b981",borderRadius:6}]},
         options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":fmtC(c.parsed.y)}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick,maxRotation:45,minRotation:45}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":fmtC(v)}}}}
       });
-      // By ticker chart
-      charts.divByTicker=new Chart(document.getElementById("chartDivByTicker"),{
+    });
+    renderWhenReady("chartDivByTicker", canvas=>{
+      charts.divByTicker=new Chart(canvas,{
         type:"bar",
         data:{labels:dvs.map(p=>p.ticker),datasets:[{label:"Dividendo anual (USD)",data:dvs.map(p=>+p.annDiv.toFixed(0)),backgroundColor:dvs.map((_,i)=>CL[i%CL.length]),borderRadius:6}]},
         options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>privacyMode?"••••":fmtC(c.parsed.y)+"/año"}}},scales:{x:{grid:{display:false},ticks:{color:cc.tick}},y:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>privacyMode?"":fmtC(v)}}}}
       });
-    },0);
+    });
   }
 
   else if(tab==="ranking"){
@@ -570,13 +599,13 @@ function renderMain(tab){
       <div class="chart-wrap tall"><canvas id="chartRentabilidad"></canvas></div>
     </div>`;
 
-    setTimeout(()=>{
-      charts.rentabilidad=new Chart(document.getElementById("chartRentabilidad"),{
+    renderWhenReady("chartRentabilidad", canvas=>{
+      charts.rentabilidad=new Chart(canvas,{
         type:"bar",
         data:{labels:sortedByPct.map(p=>p.ticker),datasets:[{label:"Rentabilidad %",data:sortedByPct.map(p=>+p.pct.toFixed(2)),backgroundColor:sortedByPct.map(p=>p.pct>=0?"#10b981":"#ef4444"),borderRadius:4}]},
         options:{indexAxis:"y",responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,callbacks:{label:c=>c.parsed.x.toFixed(2)+"%"}}},scales:{x:{grid:{color:cc.grid},ticks:{color:cc.tick,callback:v=>v+"%"}},y:{grid:{display:false},ticks:{color:cc.tick,font:{family:"DM Mono"}}}}}
       });
-    },0);
+    });
   }
 
   else if(tab==="divisas"){
@@ -651,6 +680,7 @@ function renderMain(tab){
     }).join("")}`;
   }
 
+  // ── FIX RENDIMIENTO: usar renderWhenReady en lugar de setTimeout(0) ──
   else if(tab==="rendimiento"){
     const nav=st.navHistory||[];
     if(nav.length<2){
@@ -664,7 +694,7 @@ function renderMain(tab){
     const ytdRet=ytd.length>1?((ytd[ytd.length-1].nav-ytd[0].nav)/ytd[0].nav)*100:0;
     const labels=nav.map(n=>n.date.replace(/(\d{4})(\d{2})(\d{2})/,"$3/$2"));
     const dataPoints=nav.map(n=>+((((n.nav-base)/base)*100).toFixed(2)));
-    const cc=chartColors();
+
     el.innerHTML=`
     <div class="stats-grid" style="margin-bottom:16px">
       ${sc("Rendimiento Total","<span style='color:"+clr(totalRet)+"'>"+fmtD(totalRet)+"</span>","Desde "+nav[0].date.replace(/(\d{4})(\d{2})(\d{2})/,"$3/$2/$1"),"var(--a1)")}
@@ -676,8 +706,9 @@ function renderMain(tab){
       <div class="card-title">Curva de rendimiento (% desde inicio del período)</div>
       <div class="chart-wrap tall"><canvas id="chartNAV"></canvas></div>
     </div>`;
-    setTimeout(()=>{
-      charts.nav=new Chart(document.getElementById("chartNAV"),{
+
+    renderWhenReady("chartNAV", canvas=>{
+      charts.nav=new Chart(canvas,{
         type:"line",
         data:{labels,datasets:[{
           label:"Rendimiento %",data:dataPoints,
@@ -693,7 +724,7 @@ function renderMain(tab){
                afterDataLimits:a=>{a.min=Math.min(...dataPoints)-2;a.max=Math.max(...dataPoints)+2;}}
           }}
       });
-    },0);
+    });
   }
 
   else if(tab==="sectores"){
@@ -705,7 +736,7 @@ function renderMain(tab){
       sectors[sec].tickers.push(p);
     });
     const secArr=Object.entries(sectors).sort((a,b)=>b[1].val-a[1].val);
-    const cc=chartColors();
+
     el.innerHTML=`
     <div class="two-col" style="margin-bottom:14px">
       <div class="card">
@@ -737,8 +768,9 @@ function renderMain(tab){
           </div>
         </div>`).join("")}
     </div>`;
-    setTimeout(()=>{
-      charts.sector=new Chart(document.getElementById("chartSector"),{
+
+    renderWhenReady("chartSector", canvas=>{
+      charts.sector=new Chart(canvas,{
         type:"doughnut",
         data:{labels:secArr.map(s=>s[0]),datasets:[{data:secArr.map(s=>+s[1].val.toFixed(0)),
           backgroundColor:CL.slice(0,secArr.length),borderWidth:2,borderColor:"var(--bg)"}]},
@@ -746,7 +778,7 @@ function renderMain(tab){
           plugins:{legend:{display:false},tooltip:{backgroundColor:cc.tooltipBg,titleColor:cc.tooltipText,bodyColor:cc.tooltipText,
             callbacks:{label:c=>`${c.label}: ${((c.parsed/secArr.reduce((a,s)=>a+s[1].val,0))*100).toFixed(1)}%`}}}}
       });
-    },0);
+    });
   }
 
   else if(tab==="calendario"){
@@ -755,7 +787,6 @@ function renderMain(tab){
       el.innerHTML=`<div class="warn-box">Sin datos de dividendos reales. Actualiza los datos desde IBKR.</div>`;
       return;
     }
-    // Group by month
     const byMonth={};
     divs.forEach(d=>{
       const ds=(d.dateTime||"").split(";")[0];
