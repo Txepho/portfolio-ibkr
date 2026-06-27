@@ -14,19 +14,18 @@
 
 const { getStore } = require("@netlify/blobs");
 
-// ─── Constantes ────────────────────────────────────────────────────────────────
+// ─── Configuración centralizada ────────────────────────────────────────────────
 
-const CACHE_KEY     = "portfolio-cache";
-const CACHE_TTL_MS  = 6 * 60 * 60 * 1000;   // 6 horas
-const IBKR_BASE_URL = "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService";
-
-// Reintentos para GetStatement: espera inicial 3s, backoff x1.5, máx 10 intentos → ~45s total
-const POLL_INITIAL_DELAY_MS = 3_000;
-const POLL_BACKOFF_FACTOR    = 1.5;
-const POLL_MAX_ATTEMPTS      = 10;
-
-// Regex que identifica respuestas de "aún no disponible" (no son errores definitivos)
-const IBKR_RETRY_RE = /not yet available|generation in progress|try again|could not be generated/i;
+const CONFIG = {
+  CACHE_KEY: "portfolio-cache",
+  CACHE_TTL_MS: 6 * 60 * 60 * 1000, // 6 horas
+  CACHE_STALE_MS: 24 * 60 * 60 * 1000, // 24 horas (para stale-while-revalidate futuro)
+  IBKR_BASE_URL: "https://gdcdyn.interactivebrokers.com/Universal/servlet/FlexStatementService",
+  POLL_INITIAL_DELAY_MS: 3_000,
+  POLL_BACKOFF_FACTOR: 1.5,
+  POLL_MAX_ATTEMPTS: 10,
+  FX_FALLBACK: { USD: 1, EUR: 1.09, HKD: 0.128, GBP: 1.27 },
+};
 
 // Meses en español para formatear fechas de expiración
 const MONTHS_ES = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
@@ -36,6 +35,7 @@ const HEADERS_JSON = {
   "Content-Type": "application/json",
   "Access-Control-Allow-Origin": "*",
   "Cache-Control": "no-store",
+  "X-Content-Type-Options": "nosniff",
 };
 const HEADERS_CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -73,7 +73,7 @@ function getCacheStore() {
  */
 async function readCache(store) {
   try {
-    return await store.get(CACHE_KEY, { type: "json" });
+    return await store.get(CONFIG.CACHE_KEY, { type: "json" });
   } catch {
     return null;
   }
@@ -82,7 +82,7 @@ async function readCache(store) {
 /** Guarda en caché de forma best-effort (nunca propaga errores). */
 async function writeCache(store, data) {
   try {
-    await store.setJSON(CACHE_KEY, data);
+    await store.setJSON(CONFIG.CACHE_KEY, data);
   } catch { /* ignorado */ }
 }
 
@@ -99,15 +99,21 @@ async function writeCache(store, data) {
  * Mejoras respecto al parser anterior:
  *   - Flag `s` (dotAll) para atributos multilínea
  *   - Decodificación de todas las entidades HTML estándar
- *   - No recrea el regex de atributos en cada iteración
+ *   - Cache de regex por tagName para evitar recrearlos
  */
 const ATTR_RE  = /(\w[\w.-]*)="([^"]*)"/gs;
 const ENTITY_MAP = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", nbsp: " " };
 const decodeEntities = str =>
   str.replace(/&(\w+);/g, (_, e) => ENTITY_MAP[e] ?? `&${e};`);
 
+const tagRegexCache = new Map();
 function parseTags(xml, tagName) {
-  const tagRe = new RegExp(`<${tagName}\\b([^>]*?)\\s*/?>`, "gs");
+  let tagRe = tagRegexCache.get(tagName);
+  if (!tagRe) {
+    tagRe = new RegExp(`<${tagName}\\b([^>]*?)\\s*/?>`, "gs");
+    tagRegexCache.set(tagName, tagRe);
+  }
+
   const items  = [];
   let m;
 
@@ -137,6 +143,7 @@ function parseTags(xml, tagName) {
  *   - Backoff progresivo (3s → 4.5s → 6.75s …) para reducir carga en IBKR
  *   - Timeout explícito por intento (10s) para no quedarse colgado en red lenta
  *   - Mensajes de error más descriptivos
+ *   - Sanitización de parámetros de URL
  *
  * @param {string} flexToken  Token de acceso IBKR
  * @param {string} queryId    ID del Flex Query
@@ -146,10 +153,8 @@ async function fetchFlexReport(flexToken, queryId) {
   // ── Paso 1: solicitar la generación del informe ──
   let reqText;
   try {
-    const res = await fetch(
-      `${IBKR_BASE_URL}.SendRequest?t=${flexToken}&q=${queryId}&v=3`,
-      { signal: AbortSignal.timeout(15_000) }
-    );
+    const url = `${CONFIG.IBKR_BASE_URL}.SendRequest?t=${encodeURIComponent(flexToken)}&q=${encodeURIComponent(queryId)}&v=3`;
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
     reqText = await res.text();
   } catch (err) {
     return { error: `SendRequest falló (query ${queryId}): ${err.message}` };
@@ -166,18 +171,16 @@ async function fetchFlexReport(flexToken, queryId) {
   const refCode = refMatch[1].trim();
 
   // ── Paso 2: polling con backoff progresivo ──
-  let delay = POLL_INITIAL_DELAY_MS;
+  let delay = CONFIG.POLL_INITIAL_DELAY_MS;
 
-  for (let attempt = 0; attempt < POLL_MAX_ATTEMPTS; attempt++) {
+  for (let attempt = 0; attempt < CONFIG.POLL_MAX_ATTEMPTS; attempt++) {
     await sleep(delay);
-    delay = Math.round(delay * POLL_BACKOFF_FACTOR);
+    delay = Math.round(delay * CONFIG.POLL_BACKOFF_FACTOR);
 
     let text;
     try {
-      const res = await fetch(
-        `${IBKR_BASE_URL}.GetStatement?q=${refCode}&t=${flexToken}&v=3`,
-        { signal: AbortSignal.timeout(15_000) }
-      );
+      const url = `${CONFIG.IBKR_BASE_URL}.GetStatement?q=${encodeURIComponent(refCode)}&t=${encodeURIComponent(flexToken)}&v=3`;
+      const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
       text = await res.text();
     } catch (err) {
       // Error de red puntual → reintentar
@@ -201,11 +204,14 @@ async function fetchFlexReport(flexToken, queryId) {
   }
 
   return {
-    error: `IBKR no generó el informe tras ${POLL_MAX_ATTEMPTS} intentos (query ${queryId}).`,
+    error: `IBKR no generó el informe tras ${CONFIG.POLL_MAX_ATTEMPTS} intentos (query ${queryId}).`,
   };
 }
 
-// ─── Parser de símbolos de opciones ──────────────────────────────────────────
+// Regex que identifica respuestas de "aún no disponible" (no son errores definitivos)
+const IBKR_RETRY_RE = /not yet available|generation in progress|try again|could not be generated/i;
+
+// ─── Parser de símbolos de opciones (memoizado) ──────────────────────────────
 
 /**
  * Parsea el símbolo de una opción en formato IBKR y devuelve sus componentes.
@@ -227,8 +233,12 @@ async function fetchFlexReport(flexToken, queryId) {
  * @param {string} sym  Símbolo raw de IBKR
  * @returns {{ underlying?: string, expiry?: string, strike?: number, putCall?: string }}
  */
+const optionSymbolCache = new Map();
 function parseOptionSymbol(sym) {
   if (!sym) return {};
+  const cached = optionSymbolCache.get(sym);
+  if (cached) return cached;
+
   const s = sym.trim();
 
   // ── Formato OCC estándar ──────────────────────────────────────────────────
@@ -249,7 +259,9 @@ function parseOptionSymbol(sym) {
     const yy     = dateStr.slice(0, 2);
     const strike = parseInt(strikePad, 10) / 1000;
     const expiry = `${dd} ${MONTHS_ES[mm - 1] ?? "???"} 20${yy}`;
-    return { underlying, expiry, strike, putCall: pc };
+    const result = { underlying, expiry, strike, putCall: pc };
+    optionSymbolCache.set(sym, result);
+    return result;
   }
 
   // ── Formato HK / Asia ────────────────────────────────────────────────────
@@ -259,17 +271,24 @@ function parseOptionSymbol(sym) {
   if (hkM) {
     const [, underlying, expiry, strikeStr, pc] = hkM;
     const strike = parseFloat(strikeStr);
-    return {
+    const result = {
       underlying: underlying.toUpperCase(),
       expiry: expiry.toUpperCase(),
       strike: isFinite(strike) ? strike : 0,
       putCall: pc.toUpperCase(),
     };
+    optionSymbolCache.set(sym, result);
+    return result;
   }
 
   // ── Formato no reconocido (futuro, warrant, etc.) ─────────────────────────
-  return { underlying: s };
+  const result = { underlying: s };
+  optionSymbolCache.set(sym, result);
+  return result;
 }
+
+// Limpiar cache de símbolos cada 10 min para evitar memory leaks
+setInterval(() => optionSymbolCache.clear(), 10 * 60 * 1000);
 
 // ─── Extracción de datos ──────────────────────────────────────────────────────
 
@@ -304,9 +323,6 @@ function extractOptionsFromPositions(allPositions) {
  * @returns {{ date: string, nav: number }}
  */
 function buildNavSnapshot(allPositions) {
-  // Tipos de cambio de emergencia (solo se usan si IBKR no envía fxRateToBase)
-  const FX_FALLBACK = { USD: 1, EUR: 1.09, HKD: 0.128, GBP: 1.27 };
-
   const nav = allPositions
     .filter(p => p.assetCategory === "STK" || p.assetCategory === "FUND")
     .reduce((sum, p) => {
@@ -314,7 +330,7 @@ function buildNavSnapshot(allPositions) {
       const fxRaw  = parseFloat(p.fxRateToBase);
       const fx     = isFinite(fxRaw) && fxRaw > 0
         ? fxRaw
-        : (FX_FALLBACK[p.currency] ?? 1);
+        : (CONFIG.FX_FALLBACK[p.currency] ?? 1);
       const posVal = parseFloat(p.positionValue);
       return sum + (isFinite(posVal) ? posVal * fx : 0);
     }, 0);
@@ -327,23 +343,41 @@ function buildNavSnapshot(allPositions) {
  * Combina el historial NAV previo (del caché) con los datos nuevos,
  * dando prioridad a los datos de IBKR cuando hay solapamiento de fechas.
  *
+ * Optimización: merge tipo "two pointers" asumiendo que ambos arrays están ordenados.
+ *
  * @param {object[]} prevNav     Historial anterior { date, nav }[]
  * @param {object[]} freshNav    Datos nuevos de EquitySummaryByReportDateInBase
  * @param {object}   todaySnap  Snapshot calculado hoy desde posiciones
  * @returns {object[]} Array ordenado por fecha ascendente
  */
 function mergeNavHistory(prevNav, freshNav, todaySnap) {
-  // Empezamos con el historial previo
-  const map = Object.fromEntries((prevNav ?? []).map(n => [n.date, n]));
-  // Los datos frescos de IBKR sobreescriben (más fiables)
-  for (const n of (freshNav ?? [])) {
-    if (n.date && isFinite(n.nav)) map[n.date] = n;
+  const merged = [];
+  let i = 0, j = 0;
+  const prev = prevNav ?? [];
+  const fresh = freshNav ?? [];
+
+  while (i < prev.length && j < fresh.length) {
+    if (prev[i].date < fresh[j].date) {
+      merged.push(prev[i++]);
+    } else if (prev[i].date > fresh[j].date) {
+      merged.push(fresh[j++]);
+    } else {
+      // Misma fecha → priorizar freshNav (datos de IBKR)
+      merged.push(fresh[j++]);
+      i++;
+    }
   }
-  // El snapshot de hoy siempre se añade (incluso sin EquitySummary)
+  // Añadir colas
+  while (i < prev.length) merged.push(prev[i++]);
+  while (j < fresh.length) merged.push(fresh[j++]);
+
+  // Añadir todaySnap si no está
   if (todaySnap.date && isFinite(todaySnap.nav) && todaySnap.nav > 0) {
-    map[todaySnap.date] = todaySnap;
+    const exists = merged.some(n => n.date === todaySnap.date);
+    if (!exists) merged.push(todaySnap);
   }
-  return Object.values(map).sort((a, b) => a.date.localeCompare(b.date));
+
+  return merged;
 }
 
 // ─── Handler principal ────────────────────────────────────────────────────────
@@ -367,6 +401,13 @@ exports.handler = async (event) => {
     );
   }
 
+  // Validar que los query IDs son números
+  const mainQueryId = parseInt(QUERY_ID, 10);
+  const optQueryId  = parseInt(OPTIONS_QUERY_ID, 10);
+  if (isNaN(mainQueryId) || isNaN(optQueryId)) {
+    return jsonResponse({ error: "IBKR query IDs must be numbers" }, 500);
+  }
+
   // ── Caché ──
   let store         = null;
   let blobsAvailable = false;
@@ -379,25 +420,30 @@ exports.handler = async (event) => {
     const cached = await readCache(store);
     if (cached?.fetchedAt) {
       const age = Date.now() - new Date(cached.fetchedAt).getTime();
-      if (age < CACHE_TTL_MS) {
+      if (age < CONFIG.CACHE_TTL_MS) {
+        console.log(`[portfolio] Cache hit, age: ${age}ms`);
         return jsonResponse({
           ...cached,
           cached: true,
           cacheAgeMinutes: Math.round(age / 60_000),
         });
       }
+      // Aquí podrías añadir stale-while-revalidate cuando quieras
     }
   }
+
+  console.log(`[portfolio] Fetching from IBKR, mainQuery: ${mainQueryId}, optQuery: ${optQueryId}`);
 
   // ── Fetch desde IBKR ──
   // IMPORTANTE: las peticiones deben ser secuenciales.
   // IBKR devuelve ErrorCode 1001 si recibe dos SendRequest simultáneos con el mismo token.
   let posReport, optReport;
   try {
-    posReport = await fetchFlexReport(TOKEN, QUERY_ID);
-    optReport = await fetchFlexReport(TOKEN, OPTIONS_QUERY_ID);
+    posReport = await fetchFlexReport(TOKEN, mainQueryId);
+    optReport = await fetchFlexReport(TOKEN, optQueryId);
   } catch (err) {
     // Error de red catastrófico (no debería llegar aquí, fetchFlexReport lo atrapa)
+    console.error("[portfolio] Unexpected error during IBKR fetch:", err.message);
     const stale = blobsAvailable ? await readCache(store) : null;
     if (stale?.fetchedAt) {
       return jsonResponse({ ...stale, cached: true, stale: true, staleError: err.message });
@@ -407,6 +453,7 @@ exports.handler = async (event) => {
 
   // Si el query principal falla → intentar caché obsoleta o devolver error
   if (posReport.error) {
+    console.error("[portfolio] Main IBKR query failed:", posReport.error);
     const stale = blobsAvailable ? await readCache(store) : null;
     if (stale?.fetchedAt) {
       return jsonResponse({ ...stale, cached: true, stale: true, staleError: posReport.error });
@@ -465,6 +512,7 @@ exports.handler = async (event) => {
     // ── Fallback: opciones del query principal ──
     optionsError    = optReport.error;
     optionPositions = optionsFromMain;
+    console.warn("[portfolio] Options query failed, using fallback:", optionsError);
   }
 
   // ── NAV: snapshot de hoy + merge con historial previo ──
@@ -493,13 +541,16 @@ exports.handler = async (event) => {
     fetchedAt : new Date().toISOString(),
   };
 
-  if (blobsAvailable) await writeCache(store, result);
+  if (blobsAvailable) {
+    await writeCache(store, result);
+    console.log(`[portfolio] Cache updated, positions: ${positions.length}, options: ${optionPositions.length}`);
+  }
 
   return jsonResponse({
     ...result,
     cached        : false,
     blobsAvailable,
     // Solo en modo debug (0 posiciones) incluimos el XML crudo para diagnóstico
-    debug: positions.length === 0 ? posReport.xml?.slice(0, 2000) : undefined,
+    debug: process.env.NETLIFY_DEV && positions.length === 0 ? posReport.xml?.slice(0, 2000) : undefined,
   });
 };
