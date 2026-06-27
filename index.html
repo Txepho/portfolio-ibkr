@@ -648,28 +648,32 @@ function renderMain(tab){
 
   else if(tab==="opciones"){
     const opts=st.optionPositions||[];
-    if(st.optionsError){
-      el.innerHTML=`<div class="warn-box">⚠️ No se pudieron cargar las opciones: ${st.optionsError}</div>`;
-      return;
-    }
+    const hasOptError=!!st.optionsError;
     if(opts.length===0){
-      el.innerHTML=`<div class="card"><div class="card-title">Sin opciones abiertas</div><p style="font-size:12px;color:var(--muted)">No se encontraron posiciones de opciones en el informe actual.</p></div>`;
+      el.innerHTML=`
+        ${hasOptError?`<div class="warn-box">⚠️ Query de opciones IBKR no disponible ahora mismo (posiblemente fin de semana o mantenimiento). Los datos se recuperarán el próximo día hábil.</div>`:""}
+        <div class="card"><div class="card-title">Sin opciones abiertas</div><p style="font-size:12px;color:var(--muted)">No se encontraron posiciones de opciones en el informe actual.</p></div>`;
       return;
     }
     const optPnl=opts.reduce((s,p)=>s+(parseFloat(p.fifoPnlUnrealized)||0)*(FX_TO_USD[p.currency]||1),0);
     el.innerHTML=`
+    ${hasOptError?`<div class="warn-box" style="margin-bottom:12px">⚠️ Datos de opciones obtenidos del informe de posiciones (modo fallback). Algunas métricas pueden ser menos detalladas.</div>`:""}
     <div class="stats-grid" style="margin-bottom:16px">
       ${sc("Opciones Abiertas",opts.length,"","var(--a1)")}
       ${sc("P&L Opciones",cv(optPnl),"Latente",clr(optPnl))}
     </div>
     ${opts.map(p=>{
       const isCall=p.putCall==="C";
-      const tc=isCall?"var(--amber)":"var(--a2)";
+      const isUnknown=!p.putCall;
+      const tc=isCall?"var(--amber)":isUnknown?"var(--muted)":"var(--a2)";
+      const typeLabel=isCall?"CALL":isUnknown?"OPT":"PUT";
       const pnl=(parseFloat(p.fifoPnlUnrealized)||0)*(FX_TO_USD[p.currency]||1);
+      const strikeFmt=p.strike?((p.currency==="HKD"?"HKD ":"$")+Number(p.strike).toLocaleString("es-ES")):"";
+      const underlying=p.underlyingSymbol||p.symbol||"";
       return `<div class="div-row">
-        <span class="badge" style="background:${tc}22;color:${tc};border:1px solid ${tc}44">${isCall?"CALL":"PUT"}</span>
+        <span class="badge" style="background:${tc}22;color:${tc};border:1px solid ${tc}44">${typeLabel}</span>
         <div style="flex:1">
-          <div style="font-size:13px;font-weight:700;font-family:var(--mono)">${p.underlyingSymbol||p.symbol||""} ${p.strike?("$"+p.strike):""} ${p.expiry||""}</div>
+          <div style="font-size:13px;font-weight:700;font-family:var(--mono)">${underlying} ${strikeFmt} ${p.expiry||""}</div>
           <div style="font-size:10px;color:var(--muted)">${p.currency} · Qty: ${p.position}</div>
         </div>
         <div style="text-align:right">
