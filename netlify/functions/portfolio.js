@@ -7,14 +7,11 @@ const CACHE_KEY = "portfolio-cache";
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000; // 6 hours
 
 function getCacheStore() {
-  // Explicit credentials needed because automatic context injection
-  // is not always available depending on deploy/build setup.
   const siteID = process.env.NETLIFY_SITE_ID || process.env.SITE_ID;
   const token = process.env.NETLIFY_BLOBS_TOKEN || process.env.NETLIFY_API_TOKEN;
   if (siteID && token) {
     return getStore({ name: "portfolio-data", siteID, token });
   }
-  // Fallback to automatic context (works in some deploy contexts)
   return getStore("portfolio-data");
 }
 
@@ -83,6 +80,64 @@ function parseTags(xmlData, tagName) {
   return items;
 }
 
+// Parse IBKR option symbol format: "AVGO  270115P00360000" or "TCH DEC26 550 C"
+// Returns { underlying, expiry, strike, putCall }
+function parseOptionSymbol(sym) {
+  if (!sym) return {};
+
+  // US format: "AVGO  270115P00360000"
+  // ticker(6) + YYMMDD + P/C + strike*1000 (8 digits)
+  const usMatch = sym.trim().match(/^([A-Z]+)\s+(\d{6})([PC])(\d{8})$/);
+  if (usMatch) {
+    const [, underlying, dateStr, pc, strikePad] = usMatch;
+    const yy = dateStr.slice(0, 2);
+    const mm = dateStr.slice(2, 4);
+    const dd = dateStr.slice(4, 6);
+    const strike = parseInt(strikePad, 10) / 1000;
+    const months = ["ENE","FEB","MAR","ABR","MAY","JUN","JUL","AGO","SEP","OCT","NOV","DIC"];
+    const expiry = `${dd} ${months[parseInt(mm)-1]} 20${yy}`;
+    return { underlying, expiry, strike, putCall: pc };
+  }
+
+  // HK format: "TCH DEC26 550 C"
+  const hkMatch = sym.trim().match(/^(\w+)\s+([A-Z]{3}\d{2})\s+([\d.]+)\s+([PC])$/);
+  if (hkMatch) {
+    const [, underlying, expiry, strike, pc] = hkMatch;
+    return { underlying, expiry, strike: parseFloat(strike), putCall: pc };
+  }
+
+  return { underlying: sym.trim() };
+}
+
+// Extract options from the main positions array as fallback
+function extractOptionsFromPositions(positions) {
+  return positions
+    .filter(p => p.assetCategory === "OPT")
+    .map(p => {
+      const parsed = parseOptionSymbol(p.symbol);
+      return {
+        ...p,
+        underlyingSymbol: parsed.underlying || p.symbol,
+        expiry: parsed.expiry || "",
+        strike: parsed.strike || 0,
+        putCall: parsed.putCall || "",
+        _source: "positions"
+      };
+    });
+}
+
+// Build today's NAV snapshot from positions to append to navHistory
+function buildNavSnapshot(positions) {
+  const FX_TO_USD = { USD: 1, EUR: 1.08, HKD: 0.128, GBP: 1.27 };
+  const stocks = positions.filter(p => p.assetCategory === "STK" || p.assetCategory === "FUND");
+  const nav = stocks.reduce((sum, p) => {
+    const fx = FX_TO_USD[p.currency] || 1;
+    return sum + (parseFloat(p.positionValue) || 0) * fx;
+  }, 0);
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return { date: today, nav: Math.round(nav) };
+}
+
 exports.handler = async (event) => {
   if (event.httpMethod === "OPTIONS") {
     return {
@@ -132,19 +187,17 @@ exports.handler = async (event) => {
         }
       }
     } catch (e) {
-      // Cache miss, error reading cache, or blobs not available - continue to fetch fresh data
+      // Cache miss - continue
     }
   }
 
   // ── Fetch fresh data from IBKR ──
   try {
-    // IMPORTANT: IBKR seems to reject/fail concurrent SendRequest calls using the
-    // same token (ErrorCode 1001). Fetch sequentially, not with Promise.all.
+    // Sequential to avoid IBKR ErrorCode 1001 on concurrent requests
     const posReport = await fetchFlexReport(TOKEN, QUERY_ID);
     const optReport = await fetchFlexReport(TOKEN, OPTIONS_QUERY_ID);
 
     if (posReport.error) {
-      // If we have stale cache, serve it instead of failing completely
       if (blobsAvailable) {
         try {
           const stale = await store.get(CACHE_KEY, { type: "json" });
@@ -157,7 +210,6 @@ exports.handler = async (event) => {
           }
         } catch (e) {}
       }
-
       return {
         statusCode: 200,
         headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
@@ -165,19 +217,28 @@ exports.handler = async (event) => {
       };
     }
 
-    const positions = parseTags(posReport.xml, "OpenPosition").filter(p => p.symbol);
+    const allPositions = parseTags(posReport.xml, "OpenPosition").filter(p => p.symbol);
+    // Separate stocks from options in the main positions query
+    const positions = allPositions.filter(p => p.assetCategory !== "OPT");
+    const optionsFromPositions = extractOptionsFromPositions(allPositions);
 
     let dividends = [];
     let optionPositions = [];
     let optionsError = null;
-
     let navHistory = [];
+
     if (optReport.xml) {
       const cashTx = parseTags(optReport.xml, "CashTransaction");
       dividends = cashTx.filter(t => t.type === "Dividends");
+
       const optPositions = parseTags(optReport.xml, "OpenPosition");
-      optionPositions = optPositions.filter(p => p.assetCategory === "OPT" || (p.putCall && p.putCall !== ""));
-      // NAV daily history for return curve
+      const rawOpts = optPositions.filter(p => p.assetCategory === "OPT" || (p.putCall && p.putCall !== ""));
+      optionPositions = rawOpts.map(p => ({
+        ...p,
+        underlyingSymbol: p.underlyingSymbol || p.symbol,
+        _source: "optQuery"
+      }));
+
       const equity = parseTags(optReport.xml, "EquitySummaryByReportDateInBase");
       navHistory = equity
         .filter(e => e.reportDate && e.total)
@@ -185,10 +246,42 @@ exports.handler = async (event) => {
         .sort((a, b) => a.date.localeCompare(b.date));
     } else {
       optionsError = optReport.error;
+      // FALLBACK: use options parsed from the main positions query
+      optionPositions = optionsFromPositions;
     }
 
-    // Extract USD→EUR FX rate from positions (fxRateToBase for USD positions)
-    const usdPos = positions.find(p => p.currency === "USD" && p.fxRateToBase);
+    // ── NAV accumulation: merge today's snapshot with historical cache ──
+    // Even when the options query fails, we build a NAV snapshot from current positions
+    // and accumulate it day by day in the cache so the Rendimiento chart fills over time.
+    const todaySnapshot = buildNavSnapshot(allPositions);
+
+    if (blobsAvailable) {
+      try {
+        const prevCache = await store.get(CACHE_KEY, { type: "json" });
+        const prevNav = (prevCache && prevCache.navHistory) ? prevCache.navHistory : [];
+        // Merge: keep all previous days + today (replace if same date)
+        const navMap = {};
+        prevNav.forEach(n => { navMap[n.date] = n; });
+        navMap[todaySnapshot.date] = todaySnapshot;
+        // Also merge any nav from optReport if available
+        navHistory.forEach(n => { navMap[n.date] = n; });
+        navHistory = Object.values(navMap).sort((a, b) => a.date.localeCompare(b.date));
+      } catch (e) {
+        // If no prev cache, just use what we have + today
+        const navMap = {};
+        navHistory.forEach(n => { navMap[n.date] = n; });
+        navMap[todaySnapshot.date] = todaySnapshot;
+        navHistory = Object.values(navMap).sort((a, b) => a.date.localeCompare(b.date));
+      }
+    } else {
+      // No blobs: just add today to whatever came from optReport
+      const navMap = {};
+      navHistory.forEach(n => { navMap[n.date] = n; });
+      navMap[todaySnapshot.date] = todaySnapshot;
+      navHistory = Object.values(navMap).sort((a, b) => a.date.localeCompare(b.date));
+    }
+
+    const usdPos = allPositions.find(p => p.currency === "USD" && p.fxRateToBase);
     const usdToEur = usdPos ? parseFloat(usdPos.fxRateToBase) : 0.92;
 
     const result = {
@@ -198,11 +291,10 @@ exports.handler = async (event) => {
       optionsError,
       navHistory,
       usdToEur,
-      count: positions.length,
+      count: allPositions.length,
       fetchedAt: new Date().toISOString()
     };
 
-    // Save to cache (best-effort, don't fail the response if this fails)
     if (blobsAvailable) {
       try {
         await store.setJSON(CACHE_KEY, result);
@@ -225,7 +317,6 @@ exports.handler = async (event) => {
     };
 
   } catch (err) {
-    // Try to serve stale cache on unexpected errors too
     if (blobsAvailable) {
       try {
         const stale = await store.get(CACHE_KEY, { type: "json" });
@@ -238,7 +329,6 @@ exports.handler = async (event) => {
         }
       } catch (e) {}
     }
-
     return {
       statusCode: 200,
       headers: { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" },
